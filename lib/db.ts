@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import crypto from "crypto";
+import { createClient, RedisClientType } from "redis";
 
 const pool = new Pool({
   host: "localhost",
@@ -10,6 +11,29 @@ const pool = new Pool({
 });
 
 export default pool;
+
+// 全局 Redis 客户端
+let redisClient: RedisClientType | null = null;
+
+async function getRedisClient(): Promise<RedisClientType> {
+  if (!redisClient) {
+    const port = process.env.REDIS_PORT || "6379";
+    redisClient = createClient({ url: `redis://localhost:${port}` });
+    redisClient.on("error", (err) => console.error("Redis error:", err));
+    await redisClient.connect();
+  }
+  return redisClient;
+}
+
+// 删除 API Key 缓存
+async function deleteApiKeyCache(keyId: string) {
+  try {
+    const redis = await getRedisClient();
+    await redis.del(`apikey:${keyId}`);
+  } catch (error) {
+    console.error("Failed to delete API key cache:", error);
+  }
+}
 
 let dbInitialized = false;
 
@@ -89,6 +113,14 @@ export async function createApiKey(userId: string) {
 export async function resetApiKey(userId: string) {
   const client = await pool.connect();
   try {
+    // 1. 获取旧 key 的 id (用于删除缓存)
+    const oldResult = await client.query(
+      `SELECT id FROM api_keys WHERE user_id = $1`,
+      [userId]
+    );
+    const oldKeyId = oldResult.rows[0]?.id;
+
+    // 2. 更新数据库生成新 key
     const { id, apiKey } = generateApiKey();
     const result = await client.query(
       `UPDATE api_keys
@@ -97,6 +129,12 @@ export async function resetApiKey(userId: string) {
        RETURNING *`,
       [userId, id, apiKey]
     );
+
+    // 3. 删除旧 key 的 Redis 缓存
+    if (oldKeyId) {
+      await deleteApiKeyCache(oldKeyId);
+    }
+
     return result.rows[0];
   } finally {
     client.release();
