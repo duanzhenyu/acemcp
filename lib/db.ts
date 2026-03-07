@@ -210,6 +210,24 @@ export async function getRequestLogStats(userId: string): Promise<{
   }
 }
 
+// ContextEngine count
+export async function getContextEngineCount(userId: string): Promise<number> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT COUNT(*) as count
+       FROM request_logs
+       WHERE user_id = $1
+         AND request_path = '/agents/codebase-retrieval'
+         AND status_code = 200`,
+      [userId]
+    );
+    return parseInt(result.rows[0].count || "0");
+  } finally {
+    client.release();
+  }
+}
+
 // Error Details functions
 export interface ErrorDetailRow {
   id: number;

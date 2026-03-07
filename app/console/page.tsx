@@ -44,6 +44,7 @@ interface LogStats {
   successCount: number;
   failedCount: number;
   totalCount: number;
+  contextEngineCount: number;
 }
 
 interface LogsResponse {
@@ -700,7 +701,7 @@ export default function ConsolePage() {
                     </div>
 
                     {/* Statistics Cards */}
-                    <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6 flex-shrink-0">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6 flex-shrink-0">
                       <Card className="bg-[#0a0f1a]/60 border-green-500/20">
                         <CardContent className="p-2 sm:p-4">
                           <p className="text-slate-500 text-[10px] sm:text-xs mb-0.5 sm:mb-1">成功</p>
@@ -722,6 +723,14 @@ export default function ConsolePage() {
                           <p className="text-slate-500 text-[10px] sm:text-xs mb-0.5 sm:mb-1">总计</p>
                           <p className="text-lg sm:text-2xl font-medium text-slate-300">
                             {logsData?.stats.totalCount.toLocaleString() || 0}
+                          </p>
+                        </CardContent>
+                      </Card>
+                      <Card className="bg-[#0a0f1a]/60 border-cyan-500/20">
+                        <CardContent className="p-2 sm:p-4">
+                          <p className="text-slate-500 text-[10px] sm:text-xs mb-0.5 sm:mb-1">ContextEngine</p>
+                          <p className="text-lg sm:text-2xl font-medium text-cyan-400">
+                            {logsData?.stats.contextEngineCount.toLocaleString() || 0}
                           </p>
                         </CardContent>
                       </Card>

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import {
   getRequestLogs,
   getRequestLogStats,
+  getContextEngineCount,
 } from "@/lib/db";
 
 export async function GET(request: Request) {
@@ -24,13 +25,14 @@ export async function GET(request: Request) {
 
     // 翻页时只查日志列表，首次加载时才查统计
     if (withStats) {
-      const [logs, stats] = await Promise.all([
+      const [logs, stats, contextEngineCount] = await Promise.all([
         getRequestLogs(session.user.id, limit, offset),
         getRequestLogStats(session.user.id),
+        getContextEngineCount(session.user.id),
       ]);
 
       return NextResponse.json({
-        stats,
+        stats: { ...stats, contextEngineCount },
         logs: logs.map((log) => ({
           id: log.id,
           status: log.status,

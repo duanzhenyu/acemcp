@@ -6,11 +6,11 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
   database: new Pool({
-    host: process.env.DB_HOST || "localhost",
-    port: parseInt(process.env.DB_PORT || "5432"),
-    user: process.env.DB_USER || "postgres",
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME || "postgres",
+    host: process.env.POSTGRES_HOST || "localhost",
+    port: parseInt(process.env.POSTGRES_PORT || "5432"),
+    user: process.env.POSTGRES_USER || "postgres",
+    password: process.env.POSTGRES_PASSWORD,
+    database: process.env.POSTGRES_DB || "postgres",
   }),
   user: {
     additionalFields: {
