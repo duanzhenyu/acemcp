@@ -274,6 +274,58 @@ export async function getErrorDetailsByRequestId(
   }
 }
 
+// Health Check functions (read-only, Go backend writes data)
+export interface HealthCheckRow {
+  id: number;
+  status: string;
+  tcp_ping_ms: number | null;
+  codebase_retrieval_ms: number | null;
+  error_message: string | null;
+  created_at: Date;
+  next_check_at: Date | null;
+}
+
+export async function getHealthCheckHistory(
+  limit: number = 60
+): Promise<HealthCheckRow[]> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT id, status, tcp_ping_ms, codebase_retrieval_ms, error_message, created_at, next_check_at
+       FROM health_checks
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return result.rows;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getHealthCheckStats(days: number = 7): Promise<{
+  successCount: number;
+  totalCount: number;
+}> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'success') as success_count,
+         COUNT(*) as total_count
+       FROM health_checks
+       WHERE created_at >= NOW() - INTERVAL '1 day' * $1`,
+      [days]
+    );
+    return {
+      successCount: parseInt(result.rows[0].success_count || "0"),
+      totalCount: parseInt(result.rows[0].total_count || "0"),
+    };
+  } finally {
+    client.release();
+  }
+}
+
 // Leaderboard functions
 export interface LeaderboardEntry {
   rank: number;

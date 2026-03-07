@@ -371,6 +371,12 @@ export default function ConsolePage() {
               >
                 排行榜
               </Link>
+              <Link
+                href="/status"
+                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
+              >
+                状态监控
+              </Link>
             </nav>
             <Button
               variant="ghost"
