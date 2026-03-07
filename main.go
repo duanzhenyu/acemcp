@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -56,6 +58,10 @@ const (
 	LeaderboardPath           = "/agents/codebase-retrieval"
 	LeaderboardTopN           = 10
 	LeaderboardTimezone       = "Asia/Shanghai"
+
+	// Health check 配置
+	HealthCheckInterval = 2 * time.Minute
+	HealthCheckTimeout  = 60 * time.Second
 )
 
 var allowedPaths = []string{
@@ -357,6 +363,27 @@ func initDB() error {
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to migrate error_details table: %w", err)
+	}
+
+	// 自动迁移：创建 health_checks 表
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS health_checks (
+			id SERIAL PRIMARY KEY,
+			status VARCHAR(20) NOT NULL,
+			tcp_ping_ms INTEGER,
+			codebase_retrieval_ms INTEGER,
+			error_message TEXT,
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			next_check_at TIMESTAMP WITH TIME ZONE
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to migrate health_checks table: %w", err)
+	}
+
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_health_checks_created_at ON health_checks(created_at)`)
+	if err != nil {
+		return fmt.Errorf("failed to create health_checks index: %w", err)
 	}
 
 	return nil
@@ -836,6 +863,161 @@ func startLeaderboardScheduler(ctx context.Context) {
 	}
 }
 
+// ==================== Health Check ====================
+
+const (
+	healthTestBlobName    = "676dfa60a4fccdf3b949a93f4cc09d0cd6aba4fb0f97f03617ae31a48c3c5ce0"
+	healthTestBlobContent = "#include <stdio.h>\nint main() {\n   printf(\"Hello, World!\");\n   return 0;\n}\n"
+)
+
+func healthProbeHeaders() http.Header {
+	b := make([]byte, 1)
+	rand.Read(b)
+	ua := fakeUserAgents[int(b[0])%len(fakeUserAgents)]
+
+	h := http.Header{}
+	h.Set("Content-Type", "application/json")
+	h.Set("User-Agent", ua)
+	h.Set("X-Request-Id", uuid.New().String())
+	h.Set("X-Request-Session-Id", uuid.New().String())
+	h.Set("Authorization", "Bearer "+augmentAPIToken)
+	return h
+}
+
+func runHealthProbe() {
+	ctx, cancel := context.WithTimeout(context.Background(), HealthCheckTimeout)
+	defer cancel()
+
+	var tcpPingMs, codebaseRetrievalMs sql.NullInt64
+	var errMsg sql.NullString
+	status := "success"
+
+	defer func() {
+		nextCheckAt := time.Now().Add(HealthCheckInterval)
+		_, dbErr := db.Exec(
+			`INSERT INTO health_checks (status, tcp_ping_ms, codebase_retrieval_ms, error_message, next_check_at)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			status, tcpPingMs, codebaseRetrievalMs, errMsg, nextCheckAt,
+		)
+		if dbErr != nil {
+			log.Printf("[HEALTH] Failed to save result: %v", dbErr)
+		}
+	}()
+
+	base := strings.TrimRight(augmentAPIURL, "/")
+
+	// Step 0: TCP ping
+	u, _ := url.Parse(augmentAPIURL)
+	tcpHost := u.Host
+	if !strings.Contains(tcpHost, ":") {
+		if u.Scheme == "https" {
+			tcpHost += ":443"
+		} else {
+			tcpHost += ":80"
+		}
+	}
+	t0 := time.Now()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", tcpHost)
+	tcpPingMs = sql.NullInt64{Int64: time.Since(t0).Milliseconds(), Valid: true}
+	if err != nil {
+		status = "error"
+		errMsg = sql.NullString{String: "tcp-ping: " + err.Error(), Valid: true}
+		return
+	}
+	conn.Close()
+
+	// Step 1: find-missing
+	findBody, _ := json.Marshal(map[string]interface{}{
+		"model":            "",
+		"mem_object_names": []string{healthTestBlobName},
+	})
+
+	req1, _ := http.NewRequestWithContext(ctx, "POST", base+"/find-missing", bytes.NewReader(findBody))
+	req1.Header = healthProbeHeaders()
+	resp1, err := httpClient.Do(req1)
+
+	if err != nil {
+		status = "error"
+		errMsg = sql.NullString{String: "find-missing: " + err.Error(), Valid: true}
+		return
+	}
+	defer resp1.Body.Close()
+
+	if resp1.StatusCode != http.StatusOK {
+		status = "error"
+		errMsg = sql.NullString{String: fmt.Sprintf("find-missing returned %d", resp1.StatusCode), Valid: true}
+		return
+	}
+
+	var findResult struct {
+		UnknownMemoryNames []string `json:"unknown_memory_names"`
+	}
+	json.NewDecoder(resp1.Body).Decode(&findResult)
+
+	// Step 2: batch-upload if missing
+	if len(findResult.UnknownMemoryNames) > 0 {
+		uploadBody, _ := json.Marshal(map[string]interface{}{
+			"blobs": []map[string]string{{
+				"blob_name": healthTestBlobName,
+				"path":      "main.c",
+				"content":   healthTestBlobContent,
+			}},
+		})
+		req2, _ := http.NewRequestWithContext(ctx, "POST", base+"/batch-upload", bytes.NewReader(uploadBody))
+		req2.Header = healthProbeHeaders()
+		resp2, err := httpClient.Do(req2)
+		if err == nil {
+			resp2.Body.Close()
+		}
+	}
+
+	// Step 3: codebase-retrieval
+	retBody, _ := json.Marshal(map[string]interface{}{
+		"information_request":          "Find the main function or main entry point",
+		"blobs":                        map[string]interface{}{"checkpoint_id": nil, "added_blobs": []string{healthTestBlobName}, "deleted_blobs": []string{}},
+		"dialog":                       []interface{}{},
+		"max_output_length":            0,
+		"disable_codebase_retrieval":   false,
+		"enable_commit_retrieval":      false,
+		"enable_conversation_retrieval": false,
+	})
+
+	t2 := time.Now()
+	req3, _ := http.NewRequestWithContext(ctx, "POST", base+"/agents/codebase-retrieval", bytes.NewReader(retBody))
+	req3.Header = healthProbeHeaders()
+	resp3, err := httpClient.Do(req3)
+	codebaseRetrievalMs = sql.NullInt64{Int64: time.Since(t2).Milliseconds(), Valid: true}
+
+	if err != nil {
+		status = "error"
+		errMsg = sql.NullString{String: "codebase-retrieval: " + err.Error(), Valid: true}
+		return
+	}
+	defer resp3.Body.Close()
+
+	if resp3.StatusCode != http.StatusOK {
+		status = "error"
+		errMsg = sql.NullString{String: fmt.Sprintf("codebase-retrieval returned %d", resp3.StatusCode), Valid: true}
+		return
+	}
+
+	log.Printf("[HEALTH] Probe OK: tcp-ping=%dms, codebase-retrieval=%dms",
+		tcpPingMs.Int64, codebaseRetrievalMs.Int64)
+}
+
+// startHealthScheduler 启动健康检查定时任务
+func startHealthScheduler(ctx context.Context) {
+	for {
+		runHealthProbe()
+		select {
+		case <-ctx.Done():
+			log.Println("[HEALTH] Scheduler stopped")
+			return
+		case <-time.After(HealthCheckInterval):
+		}
+	}
+}
+
 func main() {
 	// 加载配置
 	loadConfig()
@@ -871,6 +1053,10 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go startLeaderboardScheduler(ctx)
+
+	// 启动 health check 定时任务
+	log.Println("[HEALTH] Starting health scheduler...")
+	go startHealthScheduler(ctx)
 
 	r := gin.Default()
 
