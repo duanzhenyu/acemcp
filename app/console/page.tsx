@@ -352,28 +352,28 @@ export default function ConsolePage() {
 
       {/* Header */}
       <header className="relative border-b border-white/[0.06] flex-shrink-0 bg-[#0a0f1a]/80 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link href="/" className="text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between">
+          <Link href="/" className="text-lg sm:text-xl font-semibold whitespace-nowrap text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">
             ACE Relay
           </Link>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3 sm:gap-6">
             {/* Tab Navigation */}
-            <nav className="flex items-center gap-1">
+            <nav className="flex items-center gap-0.5 sm:gap-1">
               <Link
                 href="/console"
-                className="px-3 py-1.5 text-sm text-white border-b-2 border-cyan-400"
+                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-white border-b-2 border-cyan-400"
               >
                 控制台
               </Link>
               <Link
                 href="/leaderboard"
-                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
+                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
               >
                 排行榜
               </Link>
               <Link
                 href="/status"
-                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
+                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
               >
                 状态监控
               </Link>

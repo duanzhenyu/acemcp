@@ -204,33 +204,33 @@ export default function StatusPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a]">
+    <div className="min-h-screen bg-[#0a0f1a] overflow-x-hidden">
       {/* Ambient glow */}
       <div className="fixed top-0 left-1/4 w-[600px] h-[400px] bg-gradient-radial from-cyan-500/5 via-blue-500/3 to-transparent rounded-full blur-3xl pointer-events-none" />
 
       {/* Header */}
       <header className="border-b border-white/[0.06] bg-[#0a0f1a]/80 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-          <Link href="/" className="text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between">
+          <Link href="/" className="text-lg sm:text-xl font-semibold whitespace-nowrap text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">
             ACE Relay
           </Link>
-          <div className="flex items-center gap-6">
-            <nav className="flex items-center gap-1">
+          <div className="flex items-center gap-3 sm:gap-6">
+            <nav className="flex items-center gap-0.5 sm:gap-1">
               <Link
                 href="/console"
-                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
+                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
               >
                 控制台
               </Link>
               <Link
                 href="/leaderboard"
-                className="px-3 py-1.5 text-sm text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
+                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
               >
                 排行榜
               </Link>
               <Link
                 href="/status"
-                className="px-3 py-1.5 text-sm text-white border-b-2 border-cyan-400"
+                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-white border-b-2 border-cyan-400"
               >
                 状态监控
               </Link>
@@ -249,7 +249,7 @@ export default function StatusPage() {
       </header>
 
       {/* Main content */}
-      <main className="max-w-2xl mx-auto px-6 py-8">
+      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
         {initialLoading ? (
           <div className="space-y-4">
             <Skeleton className="h-32 w-full bg-white/[0.06] rounded-xl" />
@@ -265,24 +265,24 @@ export default function StatusPage() {
             {/* Service identity + status badge */}
             <div className="rounded-xl border border-white/[0.06] bg-[#0d1424]/60 backdrop-blur-xl p-6">
               <div className="flex items-start justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-white/[0.08] flex items-center justify-center">
-                    <Activity className="w-7 h-7 text-cyan-400" />
+                <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                  <div className="w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-600/20 border border-white/[0.08] flex items-center justify-center">
+                    <Activity className="w-5 h-5 sm:w-7 sm:h-7 text-cyan-400" />
                   </div>
-                  <div>
-                    <h1 className="text-xl font-semibold text-white">ACE Relay</h1>
+                  <div className="min-w-0">
+                    <h1 className="text-lg sm:text-xl font-semibold text-white">ACE Relay</h1>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs px-2 py-0.5 rounded-md bg-white/[0.06] text-slate-400">
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-white/[0.06] text-slate-400 shrink-0">
                         Augment
                       </span>
-                      <span className="text-sm text-slate-500 font-mono">
+                      <span className="text-sm text-slate-500 font-mono truncate">
                         context-engine
                       </span>
                     </div>
                   </div>
                 </div>
                 <span className={cn(
-                  "text-sm font-medium px-3 py-1 rounded-lg border",
+                  "text-sm font-medium px-3 py-1 rounded-lg border whitespace-nowrap shrink-0",
                   statusBgColor, statusColor
                 )}>
                   {overallStatus}
@@ -352,13 +352,13 @@ export default function StatusPage() {
             {/* History bars */}
             <div className="rounded-xl border border-white/[0.06] bg-[#0d1424]/60 backdrop-blur-xl p-6">
               <div className="flex items-center justify-between mb-4">
-                <span className="text-xs font-semibold tracking-wider text-slate-400 uppercase">
+                <span className="text-xs font-semibold tracking-normal sm:tracking-wider text-slate-400 uppercase whitespace-nowrap">
                   History (60pts)
                 </span>
-                <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                  <Clock className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-1.5 text-[11px] sm:text-xs text-slate-500 whitespace-nowrap ml-3">
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
                   <span className="uppercase font-medium">
-                    {probing ? "检测中..." : countdown != null ? `Next update in ${countdown}s` : "Waiting..."}
+                    {probing ? "检测中..." : countdown != null ? `Next in ${countdown}s` : "Waiting..."}
                   </span>
                   {probing && (
                     <RefreshCw className="w-3 h-3 animate-spin text-cyan-400 ml-1" />
@@ -367,8 +367,8 @@ export default function StatusPage() {
               </div>
 
               {/* Bar chart */}
-              <div ref={barContainerRef} className="relative mb-3">
-                <div className="flex items-end gap-[3px] h-10">
+              <div ref={barContainerRef} className="relative mb-3 overflow-hidden">
+                <div className="flex items-end gap-[2px] sm:gap-[3px] h-10">
                   {historyBars.map((check, i) => {
                     const isSuccess = check?.status === "success";
                     const totalMs = check ? (check.codebaseRetrievalMs || 0) + (check.tcpPingMs || 0) : 0;
@@ -378,7 +378,7 @@ export default function StatusPage() {
                       <div
                         key={check?.id || `empty-${i}`}
                         className={cn(
-                          "flex-1 min-w-[4px] max-w-[12px] h-full rounded-sm transition-all cursor-pointer",
+                          "flex-1 min-w-0 max-w-[12px] h-full rounded-sm transition-all cursor-pointer",
                           check
                             ? isSuccess
                               ? isSlow ? "bg-amber-500" : "bg-emerald-500"
