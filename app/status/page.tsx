@@ -367,7 +367,7 @@ export default function StatusPage() {
               </div>
 
               {/* Bar chart */}
-              <div ref={barContainerRef} className="relative mb-3 overflow-hidden">
+              <div ref={barContainerRef} className="relative mb-3">
                 <div className="flex items-end gap-[2px] sm:gap-[3px] h-10">
                   {historyBars.map((check, i) => {
                     const isSuccess = check?.status === "success";
