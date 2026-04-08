@@ -39,6 +39,7 @@ var (
 	dbUser          string
 	dbPassword      string
 	dbName          string
+	redisHost       string
 	redisPort       int
 	apiKeyCacheTTL  time.Duration
 	sessionTTL      time.Duration
@@ -46,10 +47,10 @@ var (
 
 const (
 	// Context keys
-	ContextKeyUserID      = "user_id"
-	ContextKeyStartTime   = "start_time"
-	ContextKeyLogID       = "log_id"
-	ContextKeyInsertDone  = "insert_done"
+	ContextKeyUserID     = "user_id"
+	ContextKeyStartTime  = "start_time"
+	ContextKeyLogID      = "log_id"
+	ContextKeyInsertDone = "insert_done"
 
 	// 请求状态
 	StatusPending   = "pending"
@@ -264,6 +265,7 @@ func loadConfig() {
 	dbUser = getEnv("DB_USER", "postgres")
 	dbPassword = getEnv("DB_PASSWORD", "")
 	dbName = getEnv("DB_NAME", "postgres")
+	redisHost = getEnv("REDIS_HOST", "localhost")
 	redisPort = getEnvInt("REDIS_PORT", 6379)
 	apiKeyCacheTTL = getEnvDuration("API_KEY_CACHE_TTL", 30*time.Minute)
 	sessionTTL = getEnvDuration("SESSION_TTL", 5*time.Minute)
@@ -402,7 +404,7 @@ func initDB() error {
 // initRedis 初始化 Redis 连接
 func initRedis() error {
 	redisClient = redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("localhost:%d", redisPort),
+		Addr: fmt.Sprintf("%s:%d", redisHost, redisPort),
 		DB:   0,
 	})
 	_, err := redisClient.Ping(context.Background()).Result()
@@ -1012,12 +1014,12 @@ func runHealthProbe() {
 
 	// Step 3: codebase-retrieval
 	retBody, _ := json.Marshal(map[string]interface{}{
-		"information_request":          "Find the main function or main entry point",
-		"blobs":                        map[string]interface{}{"checkpoint_id": nil, "added_blobs": []string{healthTestBlobName}, "deleted_blobs": []string{}},
-		"dialog":                       []interface{}{},
-		"max_output_length":            0,
-		"disable_codebase_retrieval":   false,
-		"enable_commit_retrieval":      false,
+		"information_request":           "Find the main function or main entry point",
+		"blobs":                         map[string]interface{}{"checkpoint_id": nil, "added_blobs": []string{healthTestBlobName}, "deleted_blobs": []string{}},
+		"dialog":                        []interface{}{},
+		"max_output_length":             0,
+		"disable_codebase_retrieval":    false,
+		"enable_commit_retrieval":       false,
 		"enable_conversation_retrieval": false,
 	})
 

@@ -109,6 +109,7 @@ export default function ConsolePage() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const installCommand = "npm install -g @augmentcode/auggie@latest";
+  const relayUrl = process.env.NEXT_PUBLIC_RELAY_URL || "https://acemcp.heroman.wtf/relay/";
   const mcpConfig = `{
   "mcpServers": {
     "augment-context-engine": {
@@ -116,7 +117,7 @@ export default function ConsolePage() {
       "args": ["--mcp", "--mcp-auto-workspace"],
       "env": {
         "AUGMENT_API_TOKEN": "your-access-token",
-        "AUGMENT_API_URL": "https://acemcp.heroman.wtf/relay/"
+        "AUGMENT_API_URL": "${relayUrl}"
       }
     }
   }
@@ -598,7 +599,7 @@ export default function ConsolePage() {
                                   <span className="text-slate-300">{"        "}</span>
                                   <span className="text-cyan-400">&quot;AUGMENT_API_URL&quot;</span>
                                   <span className="text-slate-500">:</span>
-                                  <span className="text-emerald-400">{" \"https://acemcp.heroman.wtf/relay/\""}</span>{"\n"}
+                                  <span className="text-emerald-400">{` "${relayUrl}"`}</span>{"\n"}
                                   <span className="text-slate-300">{"      "}</span>
                                   <span className="text-slate-500">{"}"}</span>{"\n"}
                                   <span className="text-slate-300">{"    "}</span>
@@ -634,7 +635,7 @@ export default function ConsolePage() {
                             <div className="flex gap-3 p-3 bg-[#0a0f1a]/80 border border-white/[0.04] rounded-lg">
                               <code className="text-cyan-400 text-xs font-mono shrink-0">AUGMENT_API_URL</code>
                               <p className="text-slate-400 text-xs">
-                                固定为 <code className="text-emerald-400">https://acemcp.heroman.wtf/relay/</code>
+                                固定为 <code className="text-emerald-400">{relayUrl}</code>
                               </p>
                             </div>
                           </div>
