@@ -6,6 +6,8 @@ ACE MCP Relay 工作区，包含两个独立仓库：
 >
 > - relay：https://github.com/heromantf/acemcp-relay
 > - frontend：https://github.com/heromantf/acemcp-relay-frontend
+>
+> 当前这套改造版本更适合 **公司内部使用**，或 **几个人固定共用** 的场景；它更偏向内部团队的统一 relay / 控制台方案，而不是面向大规模公网用户的通用托管服务。
 
 - `acemcp-relay-frontend`：Next.js 管理控制台，负责 **API Key 登录、用户管理、日志/排行榜/状态页**
 - `acemcp-relay`：Go relay / proxy，负责 **Bearer Token 鉴权、请求转发、日志写入、排行榜与健康检查**
