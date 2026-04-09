@@ -1,0 +1,4 @@
+services:
+  frontend:
+    volumes:
+      - ./_dist/frontend-runtime:/srv/acemcp-frontend

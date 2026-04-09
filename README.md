@@ -13,6 +13,8 @@ ACE MCP Relay 工作区，包含两个独立仓库：
 .
 ├── acemcp-relay/             # Go relay 服务
 ├── acemcp-relay-frontend/    # Next.js 前端控制台
+├── deploy/                   # 部署相关配置
+├── scripts/                  # 构建 / 发布脚本
 ├── docker-compose.yml        # 一键启动前后端 + PostgreSQL + Redis
 ├── .env.example              # 根目录 compose 环境变量示例
 └── AGENTS.md                 # 工作区说明
@@ -135,6 +137,66 @@ go mod download
 go run main.go
 ```
 
+## 内网主机部署（可追踪）
+
+当前内网主机的实际发布方式已经整理进仓库：
+
+- 前端运行时覆盖配置：`deploy/internal-host/docker-compose.frontend-runtime.yml`
+- 前端运行时打包脚本：`scripts/build-frontend-runtime.sh`
+- 后端 `linux/amd64` 构建脚本：`scripts/build-backend-amd64.sh`
+- 内网主机发布脚本：`scripts/deploy-internal-host.sh`
+
+关键事实：
+
+- 本地开发机通常是 **ARM**
+- 内网主机是 **AMD64**
+- 前端线上实际运行目录是 **`/srv/acemcp-frontend`**
+- 后端当前沿用容器内 `/app/acemcp-relay`，发布脚本会把新的 amd64 二进制覆盖进去并重启容器
+- 脚本默认只同步 `_dist/` 产物和 compose override，不会改远端 `.env`
+
+### 1. 本地生成发布产物
+
+```bash
+./scripts/build-backend-amd64.sh
+./scripts/build-frontend-runtime.sh
+```
+
+产物默认输出到：
+
+- `dist/backend/acemcp-relay-linux-amd64`
+- `dist/frontend-runtime/`
+- `dist/frontend-runtime.tgz`
+
+### 2. 发布到内网主机
+
+```bash
+ACE_RELAY_REMOTE_HOST=19730513uu.oicp.vip \
+ACE_RELAY_REMOTE_PORT=1022 \
+ACE_RELAY_REMOTE_USER=root \
+ACE_RELAY_REMOTE_DIR=/home/tools/acemcp-relay-stack \
+ACE_RELAY_REMOTE_PASSWORD='your-password' \
+./scripts/deploy-internal-host.sh
+```
+
+脚本会：
+
+1. 构建前端 runtime 与后端 amd64 二进制
+2. 同步前端 runtime 到远端 `_dist/frontend-runtime`
+3. 同步后端二进制到远端 `_dist/backend`
+4. 同步 `deploy/internal-host/docker-compose.frontend-runtime.yml`
+5. 通过 compose recreate 前端，使其从 `/srv/acemcp-frontend` 启动
+6. 将新的后端二进制复制进 `acemcp-relay-backend` 容器并重启
+
+如果已经手工构建好产物，可加：
+
+```bash
+./scripts/deploy-internal-host.sh --skip-build
+```
+
+更详细的部署说明见：
+
+- `deploy/internal-host/README.md`
+
 ## 关键环境变量
 
 ### 根目录 `.env`
@@ -154,6 +216,8 @@ go run main.go
 | `SESSION_TTL` | relay 模拟 CLI 会话 TTL |
 
 > `NEXT_PUBLIC_RELAY_URL` 会在前端构建时写入页面展示文案；修改后请重新执行 `docker compose up --build`。
+>
+> 对于内网主机发布，还需要重新执行 `scripts/build-frontend-runtime.sh` 并重新部署前端 runtime。
 
 ## 使用方式
 
@@ -193,6 +257,14 @@ go run main.go
 docker compose up --build -d
 docker compose logs -f
 docker compose down
+```
+
+### 内网主机发布
+
+```bash
+./scripts/build-backend-amd64.sh
+./scripts/build-frontend-runtime.sh
+./scripts/deploy-internal-host.sh --skip-build
 ```
 
 ### 前端
