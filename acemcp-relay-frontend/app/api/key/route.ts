@@ -1,33 +1,21 @@
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
-import {
-  getApiKey,
-  createApiKey,
-  resetApiKey,
-  maskApiKey,
-  initDB,
-} from "@/lib/db";
-
-initDB().catch(console.error);
+import { getApiKey, maskApiKey } from "@/lib/db";
+import { requireCurrentUser } from "@/lib/route-auth";
 
 export async function GET() {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "未登录" }, { status: 401 });
+    const { user, response } = await requireCurrentUser();
+    if (!user) {
+      return response!;
     }
 
-    const keyRecord = await getApiKey(session.user.id);
-
+    const keyRecord = await getApiKey(user.id);
     if (!keyRecord) {
       return NextResponse.json({
         hasKey: false,
         maskedKey: null,
         createdAt: null,
+        updatedAt: null,
       });
     }
 
@@ -43,37 +31,9 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
-  try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "未登录" }, { status: 401 });
-    }
-
-    const body = await request.json().catch(() => ({}));
-    const action = body.action || "create";
-
-    const existingKey = await getApiKey(session.user.id);
-
-    let keyRecord;
-    if (existingKey && action === "reset") {
-      keyRecord = await resetApiKey(session.user.id);
-    } else if (!existingKey) {
-      keyRecord = await createApiKey(session.user.id);
-    } else {
-      return NextResponse.json({ error: "已存在 API Key" }, { status: 400 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      apiKey: keyRecord.api_key,
-      createdAt: keyRecord.created_at,
-    });
-  } catch (error) {
-    console.error("生成 API Key 失败:", error);
-    return NextResponse.json({ error: "服务器错误" }, { status: 500 });
-  }
+export async function POST() {
+  return NextResponse.json(
+    { error: "普通用户已禁用自助创建/重置 API Key，请联系管理员" },
+    { status: 403 }
+  );
 }

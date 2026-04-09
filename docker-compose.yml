@@ -63,10 +63,13 @@ services:
       backend:
         condition: service_started
     environment:
-      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-replace-with-a-random-secret}
-      AUTH_LINUXDO_ID: ${AUTH_LINUXDO_ID:-}
-      AUTH_LINUXDO_SECRET: ${AUTH_LINUXDO_SECRET:-}
+      WEB_SESSION_SECRET: ${WEB_SESSION_SECRET:-replace-with-a-random-session-secret}
+      WEB_SESSION_TTL: ${WEB_SESSION_TTL:-12h}
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-admin}
+      BOOTSTRAP_ADMIN_USER_ID: ${BOOTSTRAP_ADMIN_USER_ID:-admin}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-ACE Admin}
+      BOOTSTRAP_ADMIN_NOTE: ${BOOTSTRAP_ADMIN_NOTE:-Bootstrap administrator}
+      BOOTSTRAP_ADMIN_API_KEY: ${BOOTSTRAP_ADMIN_API_KEY:-}
       NEXT_PUBLIC_RELAY_URL: ${NEXT_PUBLIC_RELAY_URL:-http://localhost:3009/}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432

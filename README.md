@@ -1,9 +1,9 @@
 # acemcp
 
-ACE MCP Relay 的 monorepo，包含：
+ACE MCP Relay 工作区，包含两个独立仓库：
 
-- `acemcp-relay-frontend`：Next.js 控制台
-- `acemcp-relay`：Go relay / proxy
+- `acemcp-relay-frontend`：Next.js 管理控制台，负责 **API Key 登录、用户管理、日志/排行榜/状态页**
+- `acemcp-relay`：Go relay / proxy，负责 **Bearer Token 鉴权、请求转发、日志写入、排行榜与健康检查**
 
 推荐使用根目录 `docker compose` 一起启动整套环境。
 
@@ -18,30 +18,19 @@ ACE MCP Relay 的 monorepo，包含：
 └── AGENTS.md                 # 工作区说明
 ```
 
-## 服务说明
+## 当前登录模型
 
-### 前端：`acemcp-relay-frontend`
+项目已切换为 **管理员预置 API Key + 前端 API Key 会话**：
 
-- Next.js 16 / React 19 / TypeScript
-- 负责：
-  - LinuxDo OAuth 登录
-  - API Key 管理
-  - 请求日志、排行榜、状态页
-  - MCP 配置文档展示
-
-### 后端：`acemcp-relay`
-
-- Go 1.25 / Gin
-- 负责：
-  - Bearer Token 鉴权
-  - 转发 Augment API / MCP 请求
-  - SSE 转发
-  - 请求日志、错误详情、排行榜、健康检查写入
-
-### 基础设施
-
-- PostgreSQL：存储用户、API Key、日志、排行榜、健康检查
-- Redis：缓存 API Key
+- LinuxDo OAuth / Better Auth 不再是主登录流程
+- 前端登录页只接受 API Key
+- 管理员在 `/admin/users` 中创建用户并自动生成 API Key
+- 普通用户使用该 API Key：
+  - 登录前端控制台
+  - 作为 `AUGMENT_API_TOKEN` 调用 relay
+- 用户被停用后：
+  - 前端无法继续登录
+  - relay Bearer Token 也会立即失效
 
 ## 一键启动（推荐）
 
@@ -51,11 +40,11 @@ ACE MCP Relay 的 monorepo，包含：
 cp .env.example .env
 ```
 
-至少需要按需填写：
+至少需要填写：
 
-- `BETTER_AUTH_SECRET`
-- `AUTH_LINUXDO_ID`
-- `AUTH_LINUXDO_SECRET`
+- `WEB_SESSION_SECRET`
+- `BOOTSTRAP_ADMIN_API_KEY`
+- `ADMIN_USER_IDS`
 - `AUGMENT_API_URL`
 - `AUGMENT_API_TOKEN`
 
@@ -89,6 +78,18 @@ docker compose down
 docker compose down -v
 ```
 
+## 首次初始化流程
+
+1. 在根目录 `.env` 设置 `BOOTSTRAP_ADMIN_API_KEY`
+2. 启动 `docker compose up --build -d`
+3. 打开 `http://localhost:3000/login`
+4. 使用 `BOOTSTRAP_ADMIN_API_KEY` 登录管理员账号
+5. 进入 `/admin/users` 创建普通用户
+6. 将生成的 API Key 分发给对应用户
+7. 用户在控制台登录，或把该 Key 作为 `AUGMENT_API_TOKEN` 使用 relay
+
+> `BOOTSTRAP_ADMIN_API_KEY` 对应的管理员用户会在前端首次访问数据库时自动创建/同步。
+
 ## Docker Compose 启动内容
 
 根目录 `docker-compose.yml` 会启动 4 个服务：
@@ -116,8 +117,6 @@ docker compose up --build
 
 ### 方式二：分别本地启动
 
-适合单独开发某个子项目。
-
 #### 启动前端
 
 ```bash
@@ -143,42 +142,47 @@ go run main.go
 | 变量 | 用途 |
 |---|---|
 | `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | compose 内 PostgreSQL |
-| `BETTER_AUTH_URL` | 前端 Better Auth 对外地址 |
-| `BETTER_AUTH_SECRET` | Better Auth 密钥 |
-| `AUTH_LINUXDO_ID` / `AUTH_LINUXDO_SECRET` | LinuxDo OAuth |
-| `NEXT_PUBLIC_RELAY_URL` | 前端控制台显示给用户的 relay URL |
+| `WEB_SESSION_SECRET` | 前端 API Key Web Session 签名密钥 |
+| `WEB_SESSION_TTL` | 前端登录 Cookie 有效期 |
+| `ADMIN_USER_IDS` | 管理员用户 ID 列表，逗号分隔 |
+| `BOOTSTRAP_ADMIN_USER_ID` / `BOOTSTRAP_ADMIN_NAME` / `BOOTSTRAP_ADMIN_NOTE` | 默认管理员资料 |
+| `BOOTSTRAP_ADMIN_API_KEY` | 首个管理员登录 Key |
+| `NEXT_PUBLIC_RELAY_URL` | 前端展示给用户的 relay URL |
 | `AUGMENT_API_URL` | Go relay 上游 Augment API 地址 |
 | `AUGMENT_API_TOKEN` | Go relay 上游 Token |
-| `API_KEY_CACHE_TTL` | relay Redis 缓存 TTL |
-| `SESSION_TTL` | relay Session TTL |
+| `API_KEY_CACHE_TTL` | relay Redis 鉴权缓存 TTL |
+| `SESSION_TTL` | relay 模拟 CLI 会话 TTL |
 
 > `NEXT_PUBLIC_RELAY_URL` 会在前端构建时写入页面展示文案；修改后请重新执行 `docker compose up --build`。
 
-## 访问与使用
+## 使用方式
 
 启动后：
 
-1. 打开 `http://localhost:3000`
-2. 使用 LinuxDo 登录
-3. 在控制台生成 API Key
-4. 按页面上的 MCP 配置示例，把：
-   - `AUGMENT_API_TOKEN` 设为你的 API Key
+1. 管理员访问 `http://localhost:3000/login`
+2. 使用 bootstrap 或已分配 API Key 登录
+3. 管理员在 `/admin/users` 创建/编辑/停用用户
+4. 普通用户登录 `/console` 查看自己的 API Key、日志和配置说明
+5. 客户端把：
+   - `AUGMENT_API_TOKEN` 设为用户 API Key
    - `AUGMENT_API_URL` 设为 relay 地址（默认 `http://localhost:3009/`）
 
 ## 重要实现边界
 
-- 前端 `app/api/*` 是**直接访问 PostgreSQL / Redis**
+- 前端 `app/api/*` 是 **直接访问 PostgreSQL / Redis**
 - Go 后端不是控制台 CRUD API，而是 **Augment relay**
 - `api_keys` 是前后端共享协议：
-  - 前端生成 key
-  - 后端将 Bearer Token 做 MD5 后查 `api_keys.id`
-  - Redis 缓存键格式为 `apikey:<md5>`
+  - key 格式：`ace_<hex>`
+  - `api_keys.id = md5(api_key)`
+  - Redis 缓存 key：`apikey:<md5>`
+- relay 鉴权除了检查 `api_keys.id`，还会额外校验 `user.status='active'`
 
 如果修改以下内容，前后端需要一起检查：
 
 - API Key 格式
 - `api_keys.id` 计算方式
 - Redis 缓存 key
+- 用户状态字段与停用逻辑
 - 日志/排行榜/健康检查相关表
 
 ## 常用命令

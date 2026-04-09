@@ -1,27 +1,21 @@
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
 import { getHealthCheckHistory, getHealthCheckStats } from "@/lib/db";
+import { requireCurrentUser } from "@/lib/route-auth";
 
 export async function GET(request: Request) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session?.user) {
-      return NextResponse.json({ error: "未登录" }, { status: 401 });
+    const { user, response } = await requireCurrentUser();
+    if (!user) {
+      return response!;
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get("limit") || "60");
+    const limit = Number.parseInt(searchParams.get("limit") || "60", 10);
 
     const [history, stats] = await Promise.all([
       getHealthCheckHistory(limit),
       getHealthCheckStats(7),
     ]);
-
-    const nextCheckAt = history.length > 0 ? history[0].next_check_at : null;
 
     return NextResponse.json({
       history: history.map((row) => ({
@@ -32,11 +26,8 @@ export async function GET(request: Request) {
         errorMessage: row.error_message,
         createdAt: row.created_at,
       })),
-      stats: {
-        successCount: stats.successCount,
-        totalCount: stats.totalCount,
-      },
-      nextCheckAt,
+      stats,
+      nextCheckAt: history[0]?.next_check_at || null,
     });
   } catch (error) {
     console.error("获取健康检查历史失败:", error);

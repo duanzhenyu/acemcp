@@ -69,6 +69,8 @@ const (
 
 var allowedPaths = []string{
 	"/get-models",
+	"/settings/get-mcp-tenant-configs",
+	"/settings/get-mcp-user-configs",
 	"/agents/list-remote-tools",
 	"/find-missing",
 	"/batch-upload",
@@ -253,6 +255,12 @@ var db *sql.DB
 // 全局 Redis 客户端
 var redisClient *redis.Client
 
+// AuthCacheEntry 缓存 Bearer Token 对应的用户鉴权结果
+type AuthCacheEntry struct {
+	UserID string `json:"user_id"`
+	Status string `json:"status"`
+}
+
 // loadConfig 从 .env 文件加载配置
 func loadConfig() {
 	_ = godotenv.Load() // 忽略错误，允许使用环境变量
@@ -315,6 +323,44 @@ func initDB() error {
 
 	if err = db.Ping(); err != nil {
 		return err
+	}
+
+	// 自动迁移：创建 user 表和 api_keys 表，确保 relay 在前端未启动时也能正常鉴权
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS "user" (
+			id VARCHAR(255) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			email VARCHAR(255),
+			image TEXT,
+			username VARCHAR(255),
+			"trustLevel" INTEGER NOT NULL DEFAULT 0,
+			note TEXT,
+			status VARCHAR(20) NOT NULL DEFAULT 'active',
+			"createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			"updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		ALTER TABLE "user" ADD COLUMN IF NOT EXISTS note TEXT;
+		ALTER TABLE "user" ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'active';
+		ALTER TABLE "user" ADD COLUMN IF NOT EXISTS username VARCHAR(255);
+		ALTER TABLE "user" ADD COLUMN IF NOT EXISTS image TEXT;
+		ALTER TABLE "user" ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+		ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "trustLevel" INTEGER NOT NULL DEFAULT 0;
+		ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP;
+		ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP;
+		CREATE INDEX IF NOT EXISTS idx_user_status ON "user"(status);
+
+		CREATE TABLE IF NOT EXISTS api_keys (
+			id VARCHAR(32) PRIMARY KEY,
+			user_id VARCHAR(255) NOT NULL,
+			api_key VARCHAR(64) UNIQUE NOT NULL,
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(user_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to migrate user/api_keys tables: %w", err)
 	}
 
 	// 自动迁移：创建 request_logs 表
@@ -414,6 +460,17 @@ func initRedis() error {
 	return nil
 }
 
+func cacheAuthEntry(ctx context.Context, cacheKey string, entry AuthCacheEntry) {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		log.Printf("[AUTH] failed to marshal cache entry: %v", err)
+		return
+	}
+	if err := redisClient.Set(ctx, cacheKey, string(data), apiKeyCacheTTL).Err(); err != nil {
+		log.Printf("[AUTH] failed to set auth cache: %v", err)
+	}
+}
+
 // authenticateRequest 验证请求的 Authorization header，返回 user_id
 // 如果验证失败返回空字符串和 false
 func authenticateRequest(c *gin.Context) (string, bool) {
@@ -427,21 +484,33 @@ func authenticateRequest(c *gin.Context) (string, bool) {
 	tokenMD5 := hex.EncodeToString(hash[:])
 	cacheKey := "apikey:" + tokenMD5
 
-	// 1. 先查 Redis 缓存
 	ctx := context.Background()
-	if userID, err := redisClient.Get(ctx, cacheKey).Result(); err == nil {
-		return userID, true
+	if cached, err := redisClient.Get(ctx, cacheKey).Result(); err == nil {
+		var entry AuthCacheEntry
+		if json.Unmarshal([]byte(cached), &entry) == nil && entry.UserID != "" {
+			if entry.Status == "" || entry.Status == "active" {
+				return entry.UserID, true
+			}
+			return "", false
+		}
 	}
 
-	// 2. 缓存未命中，查数据库
 	var userID string
-	err := db.QueryRow("SELECT user_id FROM api_keys WHERE id = $1", tokenMD5).Scan(&userID)
+	var userStatus string
+	err := db.QueryRow(`
+		SELECT ak.user_id, COALESCE(u.status, 'active') AS user_status
+		FROM api_keys ak
+		LEFT JOIN "user" u ON u.id = ak.user_id
+		WHERE ak.id = $1
+	`, tokenMD5).Scan(&userID, &userStatus)
 	if err != nil {
 		return "", false
 	}
 
-	// 3. 写入缓存
-	redisClient.Set(ctx, cacheKey, userID, apiKeyCacheTTL)
+	cacheAuthEntry(ctx, cacheKey, AuthCacheEntry{UserID: userID, Status: userStatus})
+	if userStatus != "active" {
+		return "", false
+	}
 
 	return userID, true
 }

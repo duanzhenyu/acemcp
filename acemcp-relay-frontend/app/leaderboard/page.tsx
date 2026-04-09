@@ -1,34 +1,28 @@
 "use client";
 
-import { authClient } from "@/lib/auth-client";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
-import { Trophy, Crown, Medal, RefreshCw } from "lucide-react";
+import { Crown, Medal, RefreshCw, Trophy } from "lucide-react";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { DashboardHeader } from "@/components/DashboardHeader";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-// 获取最近三天的日期选项（使用 Asia/Shanghai 时区）
 function getDateOptions() {
-  const options: { date: string; label: string }[] = [];
   const now = new Date();
-
-  for (let i = 0; i < 3; i++) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    // 完整日期字符串用于 API 调用 (YYYY-MM-DD)
-    const dateStr = new Intl.DateTimeFormat("sv-SE", {
-      timeZone: "Asia/Shanghai",
-    }).format(d);
-    // 显示标签使用 M/D 格式（如 1/15）
-    const label = new Intl.DateTimeFormat("zh-CN", {
-      timeZone: "Asia/Shanghai",
-      month: "numeric",
-      day: "numeric",
-    }).format(d);
-    options.push({ date: dateStr, label });
-  }
-  return options;
+  return Array.from({ length: 3 }).map((_, index) => {
+    const date = new Date(now);
+    date.setDate(date.getDate() - index);
+    return {
+      date: new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai" }).format(date),
+      label: new Intl.DateTimeFormat("zh-CN", {
+        timeZone: "Asia/Shanghai",
+        month: "numeric",
+        day: "numeric",
+      }).format(date),
+    };
+  });
 }
 
 interface LeaderboardEntry {
@@ -38,37 +32,22 @@ interface LeaderboardEntry {
   isCurrentUser: boolean;
 }
 
-interface LeaderboardData {
-  date: string;
-  entries: LeaderboardEntry[];
-}
-
 export default function LeaderboardPage() {
-  const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
-  const [data, setData] = useState<LeaderboardData | null>(null);
+  const { user, isLoading } = useCurrentUser({ required: true });
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [selectedDate, setSelectedDate] = useState("");
   const [loading, setLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>("");
 
-  const dateOptions = getDateOptions();
+  const options = useMemo(() => getDateOptions(), []);
 
-  useEffect(() => {
-    if (!isPending && !session) {
-      router.push("/login");
-    }
-  }, [isPending, session, router]);
-
-  const fetchLeaderboard = useCallback(async (dateStr?: string) => {
+  const fetchLeaderboard = useCallback(async (date: string) => {
     setLoading(true);
     try {
-      const url = dateStr
-        ? `/api/leaderboard?date=${dateStr}`
-        : "/api/leaderboard";
-      const res = await fetch(url);
-      if (res.ok) {
-        const json = await res.json();
-        setData(json);
-      }
+      const response = await fetch(`/api/leaderboard?date=${date}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      setEntries(data.entries || []);
     } catch (error) {
       console.error("获取排行榜失败:", error);
     } finally {
@@ -77,157 +56,109 @@ export default function LeaderboardPage() {
   }, []);
 
   useEffect(() => {
-    if (session && !selectedDate) {
-      const todayDate = dateOptions[0].date;
-      setSelectedDate(todayDate);
-      fetchLeaderboard(todayDate);
+    if (!selectedDate && options[0]) {
+      setSelectedDate(options[0].date);
+      fetchLeaderboard(options[0].date);
     }
-  }, [session, selectedDate, dateOptions, fetchLeaderboard]);
+  }, [fetchLeaderboard, options, selectedDate]);
 
-  const handleDateChange = (date: string) => {
-    setSelectedDate(date);
-    fetchLeaderboard(date);
+  const handleLogout = async () => {
+    await fetch("/api/logout", { method: "POST" });
+    router.push("/");
+    router.refresh();
   };
 
-  if (isPending) {
+  if (isLoading || !user) {
     return (
-      <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center">
-        <div className="animate-pulse text-slate-400">加载中...</div>
+      <div className="flex min-h-screen items-center justify-center bg-[#0a0f1a] text-slate-400">
+        加载中...
       </div>
     );
   }
 
-  if (!session) return null;
-
   const getRankIcon = (rank: number) => {
-    if (rank === 1) return <Crown className="w-5 h-5 text-amber-400" />;
-    if (rank === 2) return <Medal className="w-5 h-5 text-slate-300" />;
-    if (rank === 3) return <Medal className="w-5 h-5 text-amber-600" />;
-    return <span className="w-5 text-center text-slate-500 text-sm font-mono">{rank}</span>;
-  };
-
-  const getRankStyle = (rank: number) => {
-    if (rank === 1) return "border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-transparent";
-    if (rank === 2) return "border-slate-400/30 bg-gradient-to-r from-slate-400/10 to-transparent";
-    if (rank === 3) return "border-amber-700/30 bg-gradient-to-r from-amber-700/10 to-transparent";
-    return "border-white/[0.06]";
+    if (rank === 1) return <Crown className="h-5 w-5 text-amber-400" />;
+    if (rank === 2) return <Medal className="h-5 w-5 text-slate-300" />;
+    if (rank === 3) return <Medal className="h-5 w-5 text-amber-600" />;
+    return <span className="w-5 text-center text-sm text-slate-500">{rank}</span>;
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a]">
-      {/* Header */}
-      <header className="border-b border-white/[0.06] bg-[#0a0f1a]/80 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between">
-          <Link href="/" className="text-lg sm:text-xl font-semibold whitespace-nowrap text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">
-            ACE Relay
-          </Link>
-          <div className="flex items-center gap-3 sm:gap-6">
-            {/* Tab Navigation */}
-            <nav className="flex items-center gap-0.5 sm:gap-1">
-              <Link
-                href="/console"
-                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
-              >
-                控制台
-              </Link>
-              <Link
-                href="/leaderboard"
-                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-white border-b-2 border-cyan-400"
-              >
-                排行榜
-              </Link>
-              <Link
-                href="/status"
-                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
-              >
-                状态监控
-              </Link>
-            </nav>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => fetchLeaderboard(selectedDate)}
-              disabled={loading}
-              className="text-slate-400 hover:text-white"
-            >
-              <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-            </Button>
-          </div>
+    <div className="min-h-screen bg-[#0a0f1a] text-white">
+      <DashboardHeader
+        currentPath="/leaderboard"
+        isAdmin={user.isAdmin}
+        userName={user.name}
+        onLogout={handleLogout}
+        rightSlot={
+          <Button variant="ghost" size="sm" onClick={() => fetchLeaderboard(selectedDate)}>
+            <RefreshCw className={cn("h-4 w-4 text-slate-300", loading && "animate-spin")} />
+          </Button>
+        }
+      />
+
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
+        <div className="mb-8 text-center">
+          <Trophy className="mx-auto h-12 w-12 text-amber-400" />
+          <h1 className="mt-4 text-3xl font-semibold">每日排行榜</h1>
+          <p className="mt-2 text-sm text-slate-400">按 /agents/codebase-retrieval 成功调用量统计，每 30 分钟更新。</p>
         </div>
-      </header>
 
-      {/* Main content */}
-      <main className="max-w-2xl mx-auto px-6 py-8">
-        <div className="text-center mb-8">
-          <Trophy className="w-12 h-12 text-amber-400 mx-auto mb-4" />
-          <h1 className="text-2xl font-semibold text-white mb-2">每日排行榜</h1>
-          <p className="text-slate-400 text-sm mb-4">每半小时更新</p>
-
-          {/* 日期选择器 - Segment 风格 */}
-          <div className="flex justify-center">
-            <div className="inline-flex rounded-lg bg-white/[0.04] border border-white/[0.06] p-1">
-              {dateOptions.map((option) => (
-                <button
-                  key={option.date}
-                  onClick={() => handleDateChange(option.date)}
-                  className={cn(
-                    "px-4 py-1.5 text-sm rounded-md transition-all",
-                    selectedDate === option.date
-                      ? "bg-cyan-500/20 text-cyan-400"
-                      : "text-slate-400 hover:text-slate-200"
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+        <div className="mb-6 flex justify-center">
+          <div className="inline-flex rounded-2xl border border-white/[0.06] bg-white/[0.03] p-1.5">
+            {options.map((option) => (
+              <button
+                key={option.date}
+                type="button"
+                onClick={() => {
+                  setSelectedDate(option.date);
+                  fetchLeaderboard(option.date);
+                }}
+                className={cn(
+                  "rounded-xl px-4 py-2 text-sm transition",
+                  selectedDate === option.date
+                    ? "bg-cyan-500/20 text-cyan-300"
+                    : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Leaderboard entries */}
         <div className="space-y-3">
-          {loading && !data ? (
-            Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-16 rounded-xl bg-white/[0.02] border border-white/[0.06] animate-pulse"
-              />
-            ))
-          ) : data?.entries.length === 0 ? (
-            <div className="text-center py-12 text-slate-500">
-              暂无排行数据
-            </div>
+          {loading && entries.length === 0 ? (
+            <Card className="border-white/[0.06] bg-[#0d1424]/70 backdrop-blur-xl">
+              <CardContent className="p-6 text-center text-slate-400">加载中...</CardContent>
+            </Card>
+          ) : entries.length === 0 ? (
+            <Card className="border-white/[0.06] bg-[#0d1424]/70 backdrop-blur-xl">
+              <CardContent className="p-6 text-center text-slate-400">暂无排行数据</CardContent>
+            </Card>
           ) : (
-            data?.entries.map((entry) => (
-              <div
+            entries.map((entry) => (
+              <Card
                 key={entry.rank}
                 className={cn(
-                  "rounded-xl border p-4 flex items-center justify-between transition-all",
-                  "bg-[#0d1424]/60 backdrop-blur-xl",
-                  getRankStyle(entry.rank),
+                  "border-white/[0.06] bg-[#0d1424]/70 backdrop-blur-xl",
                   entry.isCurrentUser && "ring-1 ring-cyan-500/50"
                 )}
               >
-                <div className="flex items-center gap-4">
-                  <div className="w-8 flex justify-center">
-                    {getRankIcon(entry.rank)}
+                <CardContent className="flex items-center justify-between gap-4 p-5">
+                  <div className="flex items-center gap-4">
+                    <div className="w-8">{getRankIcon(entry.rank)}</div>
+                    <div>
+                      <p className={cn("font-medium", entry.isCurrentUser ? "text-cyan-300" : "text-white")}>{entry.userName}</p>
+                      <p className="text-xs text-slate-500">第 {entry.rank} 名</p>
+                    </div>
                   </div>
-                  <span className={cn(
-                    "font-medium",
-                    entry.isCurrentUser ? "text-cyan-400" : "text-white"
-                  )}>
-                    {entry.userName}
-                    {entry.isCurrentUser && (
-                      <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
-                        你
-                      </span>
-                    )}
-                  </span>
-                </div>
-                <span className="text-slate-300 font-mono text-sm">
-                  {entry.requestCount.toLocaleString()} 次
-                </span>
-              </div>
+                  <div className="text-right">
+                    <p className="text-xl font-semibold text-white">{entry.requestCount}</p>
+                    <p className="text-xs text-slate-500">次调用</p>
+                  </div>
+                </CardContent>
+              </Card>
             ))
           )}
         </div>

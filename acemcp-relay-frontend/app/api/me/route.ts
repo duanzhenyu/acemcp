@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getApiKey } from "@/lib/db";
 import { requireCurrentUser } from "@/lib/route-auth";
 
 export async function GET() {
@@ -9,14 +8,9 @@ export async function GET() {
       return response!;
     }
 
-    const keyRecord = await getApiKey(user.id);
-    if (!keyRecord) {
-      return NextResponse.json({ error: "没有可用的 API Key" }, { status: 404 });
-    }
-
-    return NextResponse.json({ apiKey: keyRecord.api_key });
+    return NextResponse.json({ user });
   } catch (error) {
-    console.error("获取完整 API Key 失败:", error);
+    console.error("获取当前用户失败:", error);
     return NextResponse.json({ error: "服务器错误" }, { status: 500 });
   }
 }

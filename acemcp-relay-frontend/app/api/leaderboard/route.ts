@@ -1,36 +1,29 @@
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
 import { getLeaderboard } from "@/lib/db";
+import { requireCurrentUser } from "@/lib/route-auth";
 import { maskUsername } from "@/lib/utils";
 
 export async function GET(request: Request) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "未登录" }, { status: 401 });
+    const { user, response } = await requireCurrentUser();
+    if (!user) {
+      return response!;
     }
 
     const { searchParams } = new URL(request.url);
     const dateStr = searchParams.get("date") || undefined;
-
-    const leaderboard = await getLeaderboard(dateStr);
-
-    // Get today's date in Asia/Shanghai timezone for response
-    const today = new Intl.DateTimeFormat('sv-SE', {
-      timeZone: 'Asia/Shanghai'
+    const entries = await getLeaderboard(dateStr);
+    const today = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Shanghai",
     }).format(new Date());
 
     return NextResponse.json({
       date: dateStr || today,
-      entries: leaderboard.map((entry) => ({
+      entries: entries.map((entry) => ({
         rank: entry.rank,
         userName: maskUsername(entry.user_name),
         requestCount: Number(entry.request_count),
-        isCurrentUser: entry.user_id === session.user.id,
+        isCurrentUser: entry.user_id === user.id,
       })),
     });
   } catch (error) {

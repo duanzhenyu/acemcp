@@ -1,13 +1,21 @@
 "use client";
 
-import { authClient } from "@/lib/auth-client";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { cn } from "@/lib/utils";
-import { Copy, Eye, EyeOff, RefreshCw, Info, LogOut, Loader2 } from "lucide-react";
-
-// shadcn/ui components
+import {
+  Copy,
+  Eye,
+  EyeOff,
+  Info,
+  KeyRound,
+  Loader2,
+  LogOut,
+  RefreshCw,
+  Shield,
+} from "lucide-react";
+import { useCurrentUser } from "@/hooks/use-current-user";
+import { DashboardHeader } from "@/components/DashboardHeader";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -19,15 +27,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
-type Tab = "keys" | "profile" | "logs" | "docs";
+type Tab = "keys" | "docs" | "logs" | "profile";
 
 interface RequestLog {
   id: string;
@@ -40,77 +45,69 @@ interface RequestLog {
   clientIp: string;
 }
 
-interface LogStats {
-  successCount: number;
-  failedCount: number;
-  totalCount: number;
-  contextEngineCount: number;
-}
-
 interface LogsResponse {
-  stats: LogStats;
+  stats?: {
+    successCount: number;
+    failedCount: number;
+    totalCount: number;
+    contextEngineCount: number;
+  };
   logs: RequestLog[];
   pagination: {
     page: number;
     limit: number;
-    total: number;
+    total?: number;
   };
-}
-
-interface ErrorDetail {
-  id: number;
-  source: string;
-  error: string;
-  createdAt: string;
 }
 
 interface LogDetailResponse {
   log: RequestLog;
-  errors: ErrorDetail[];
-}
-
-interface UserInfo {
-  id: string;
-  username: string;
-  name: string;
-  email: string;
-  image: string;
-  trustLevel: number;
-  createdAt: string;
+  errors: Array<{
+    id: number;
+    source: string;
+    error: string;
+    createdAt: string;
+  }>;
 }
 
 interface KeyInfo {
   hasKey: boolean;
   maskedKey: string | null;
   createdAt: string | null;
-  updatedAt?: string | null;
+  updatedAt: string | null;
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-[#0a0f1a]/40 p-4">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-2 break-all text-sm text-white">{value}</p>
+    </div>
+  );
 }
 
 export default function ConsolePage() {
-  const { data: session, isPending } = authClient.useSession();
   const router = useRouter();
+  const { user, isLoading } = useCurrentUser({ required: true });
   const [activeTab, setActiveTab] = useState<Tab>("keys");
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [keyInfo, setKeyInfo] = useState<KeyInfo | null>(null);
-  const [showKey, setShowKey] = useState(false);
   const [fullKey, setFullKey] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showKey, setShowKey] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [logsData, setLogsData] = useState<LogsResponse | null>(null);
-  const [logsLoading, setLogsLoading] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
-  const [logsPage, setLogsPage] = useState(1);
   const [copiedInstall, setCopiedInstall] = useState(false);
   const [copiedConfig, setCopiedConfig] = useState(false);
-  const [showDetailDialog, setShowDetailDialog] = useState(false);
+  const [logsData, setLogsData] = useState<LogsResponse | null>(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsPage, setLogsPage] = useState(1);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [logDetail, setLogDetail] = useState<LogDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const installCommand = "npm install -g @augmentcode/auggie@latest";
   const relayUrl = process.env.NEXT_PUBLIC_RELAY_URL || "https://acemcp.heroman.wtf/relay/";
-  const mcpConfig = `{
+  const mcpConfig = useMemo(
+    () => `{
   "mcpServers": {
     "augment-context-engine": {
       "command": "auggie",
@@ -121,83 +118,55 @@ export default function ConsolePage() {
       }
     }
   }
-}`;
-
-  const fetchUserInfo = useCallback(async () => {
-    try {
-      const res = await fetch("/api/user");
-      if (res.ok) {
-        const data = await res.json();
-        setUserInfo(data);
-      }
-    } catch (error) {
-      console.error("获取用户信息失败:", error);
-    }
-  }, []);
+}`,
+    [relayUrl]
+  );
 
   const fetchKeyInfo = useCallback(async () => {
-    try {
-      const res = await fetch("/api/key");
-      if (res.ok) {
-        const data = await res.json();
-        setKeyInfo(data);
-      }
-    } catch (error) {
-      console.error("获取密钥信息失败:", error);
+    const response = await fetch("/api/key", { cache: "no-store" });
+    if (response.ok) {
+      const data = await response.json();
+      setKeyInfo(data);
     }
   }, []);
 
-  const fetchLogs = useCallback(async (page = 1, forceRefreshStats = false) => {
+  const fetchLogs = useCallback(async (page = 1, withStats = false) => {
     setLogsLoading(true);
-    const startTime = Date.now();
     try {
-      // 首次加载、第1页、或强制刷新时获取统计数据
-      const needStats = forceRefreshStats || !logsData?.stats || page === 1;
-      const url = needStats
+      const url = withStats || !logsData?.stats
         ? `/api/logs?page=${page}&limit=20&withStats=true`
         : `/api/logs?page=${page}&limit=20`;
-
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-
-        if (needStats) {
-          // 带统计数据的响应
-          setLogsData(data);
-        } else {
-          // 只更新日志列表，保留原有统计数据和 total
-          setLogsData(prev => prev ? {
-            ...prev,
-            logs: data.logs,
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      setLogsData((previous) => {
+        if (!data.stats && previous?.stats) {
+          return {
+            ...data,
+            stats: previous.stats,
             pagination: {
               ...data.pagination,
-              total: prev.pagination.total,
+              total: previous.pagination.total,
             },
-          } : data);
+          };
         }
-        setLogsPage(page);
-      }
+        return data;
+      });
+      setLogsPage(page);
     } catch (error) {
       console.error("获取请求日志失败:", error);
     } finally {
-      // 确保动画至少显示 300ms
-      const elapsed = Date.now() - startTime;
-      if (elapsed < 300) {
-        await new Promise(resolve => setTimeout(resolve, 300 - elapsed));
-      }
       setLogsLoading(false);
     }
   }, [logsData?.stats]);
 
   const fetchLogDetail = useCallback(async (logId: string) => {
     setDetailLoading(true);
-    setShowDetailDialog(true);
     try {
-      const res = await fetch(`/api/logs/${logId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLogDetail(data);
-      }
+      const response = await fetch(`/api/logs/${logId}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      setLogDetail(data);
     } catch (error) {
       console.error("获取日志详情失败:", error);
     } finally {
@@ -205,960 +174,392 @@ export default function ConsolePage() {
     }
   }, []);
 
-  // Fetch logs when switching to logs tab (only on tab switch, not on page change)
   useEffect(() => {
-    if (activeTab === "logs" && session && !logsData) {
-      fetchLogs(1);  // 首次进入 logs tab 时加载第一页
-    }
-  }, [activeTab, session, logsData, fetchLogs]);
-
-  // Auto-refresh logs
-  useEffect(() => {
-    if (!autoRefresh || activeTab !== "logs") return;
-
-    const intervalId = setInterval(() => {
-      fetchLogs(1, true);  // 自动刷新回到第1页并获取统计
-    }, 5000);
-
-    return () => clearInterval(intervalId);
-  }, [autoRefresh, activeTab, fetchLogs]);
-
-  useEffect(() => {
-    if (!isPending && !session) {
-      router.push("/login");
-    } else if (session) {
-      fetchUserInfo();
+    if (user) {
       fetchKeyInfo();
     }
-  }, [isPending, session, router, fetchUserInfo, fetchKeyInfo]);
+  }, [fetchKeyInfo, user]);
 
-  const handleShowKey = async () => {
+  useEffect(() => {
+    if (user && activeTab === "logs" && !logsData) {
+      fetchLogs(1, true);
+    }
+  }, [activeTab, fetchLogs, logsData, user]);
+
+  useEffect(() => {
+    if (!autoRefresh || activeTab !== "logs") return;
+    const timer = window.setInterval(() => {
+      fetchLogs(1, true);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, autoRefresh, fetchLogs]);
+
+  const handleRevealKey = async () => {
     if (showKey) {
       setShowKey(false);
       setFullKey(null);
       return;
     }
-    try {
-      const res = await fetch("/api/key/reveal");
-      if (res.ok) {
-        const data = await res.json();
-        setFullKey(data.apiKey);
-        setShowKey(true);
-      }
-    } catch (error) {
-      console.error("获取完整密钥失败:", error);
-    }
+
+    const response = await fetch("/api/key/reveal", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    setFullKey(data.apiKey);
+    setShowKey(true);
   };
 
-  const handleCopy = async () => {
-    if (!fullKey && !keyInfo?.hasKey) return;
-
-    let keyToCopy = fullKey;
-    if (!keyToCopy) {
-      const res = await fetch("/api/key/reveal");
-      if (res.ok) {
-        const data = await res.json();
-        keyToCopy = data.apiKey;
-      }
+  const handleCopyKey = async () => {
+    if (!keyInfo?.hasKey) return;
+    let target = fullKey;
+    if (!target) {
+      const response = await fetch("/api/key/reveal", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      target = data.apiKey;
     }
 
-    if (keyToCopy) {
-      await navigator.clipboard.writeText(keyToCopy);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handleGenerateKey = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create" }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFullKey(data.apiKey);
-        setShowKey(false);
-        await fetchKeyInfo();
-      }
-    } catch (error) {
-      console.error("生成密钥失败:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResetKey = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reset" }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFullKey(data.apiKey);
-        setShowKey(false);
-        await fetchKeyInfo();
-      }
-    } catch (error) {
-      console.error("重置密钥失败:", error);
-    } finally {
-      setLoading(false);
-      setShowResetConfirm(false);
-    }
+    if (!target) return;
+    await navigator.clipboard.writeText(target);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
   };
 
   const handleLogout = async () => {
-    await authClient.signOut({
-      fetchOptions: {
-        onSuccess: () => {
-          router.push("/");
-        },
-      },
-    });
+    await fetch("/api/logout", { method: "POST" });
+    router.push("/");
+    router.refresh();
   };
 
-  if (isPending) {
+  const copyText = async (value: string, setter: (value: boolean) => void) => {
+    await navigator.clipboard.writeText(value);
+    setter(true);
+    window.setTimeout(() => setter(false), 1500);
+  };
+
+  if (isLoading || !user) {
     return (
-      <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center">
-        <div className="space-y-4 w-full max-w-md px-4">
-          <Skeleton className="h-8 w-32 bg-white/[0.06]" />
-          <Skeleton className="h-32 w-full bg-white/[0.06]" />
-          <Skeleton className="h-24 w-full bg-white/[0.06]" />
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-[#0a0f1a] text-slate-400">
+        <Loader2 className="h-5 w-5 animate-spin" />
       </div>
     );
   }
 
-  if (!session) return null;
-
-  const tabs = [
-    { id: "keys" as const, label: "密钥管理" },
-    { id: "docs" as const, label: "配置说明" },
-    { id: "logs" as const, label: "请求日志" },
-    { id: "profile" as const, label: "用户信息" },
-  ];
+  const stats = logsData?.stats;
 
   return (
-    <div className="h-screen bg-[#0a0f1a] flex flex-col overflow-hidden">
-      {/* Ambient glow */}
-      <div className="fixed top-0 left-1/4 w-[600px] h-[400px] bg-gradient-radial from-cyan-500/5 via-blue-500/3 to-transparent rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-[#0a0f1a] text-white">
+      <div className="fixed left-1/4 top-0 h-[380px] w-[520px] rounded-full bg-cyan-500/5 blur-3xl pointer-events-none" />
+      <DashboardHeader
+        currentPath="/console"
+        isAdmin={user.isAdmin}
+        userName={user.name}
+        onLogout={() => setShowLogoutConfirm(true)}
+      />
 
-      {/* Noise texture */}
-      <div className="fixed inset-0 opacity-[0.015] pointer-events-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjMwMCIgaGVpZ2h0PSIzMDAiIGZpbHRlcj0idXJsKCNhKSIgb3BhY2l0eT0iMSIvPjwvc3ZnPg==')]" />
-
-      {/* Header */}
-      <header className="relative border-b border-white/[0.06] flex-shrink-0 bg-[#0a0f1a]/80 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-3 flex items-center justify-between">
-          <Link href="/" className="text-lg sm:text-xl font-semibold whitespace-nowrap text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-400">
-            ACE Relay
-          </Link>
-          <div className="flex items-center gap-3 sm:gap-6">
-            {/* Tab Navigation */}
-            <nav className="flex items-center gap-0.5 sm:gap-1">
-              <Link
-                href="/console"
-                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-white border-b-2 border-cyan-400"
-              >
-                控制台
-              </Link>
-              <Link
-                href="/leaderboard"
-                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
-              >
-                排行榜
-              </Link>
-              <Link
-                href="/status"
-                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm whitespace-nowrap text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-colors"
-              >
-                状态监控
-              </Link>
-            </nav>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowLogoutConfirm(true)}
-              className="text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
+      <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8">
+        <div className="rounded-3xl border border-white/[0.06] bg-[#0d1424]/70 p-6 backdrop-blur-xl">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold">欢迎回来，{user.name}</h1>
+              <p className="mt-2 text-sm text-slate-400">
+                使用 API Key 登录的统一控制台。{user.isAdmin ? " 你拥有管理员权限。" : ""}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge className="border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-cyan-300">
+                状态：{user.status === "active" ? "启用" : "停用"}
+              </Badge>
+              {user.isAdmin ? (
+                <Badge className="border-purple-500/20 bg-purple-500/10 px-3 py-1 text-purple-300">
+                  <Shield className="h-3 w-3" /> 管理员
+                </Badge>
+              ) : null}
+            </div>
           </div>
         </div>
-      </header>
 
-      {/* Main content */}
-      <div className="relative flex-1 overflow-hidden">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 sm:py-8 h-full flex flex-col">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as Tab)} className="flex-1 flex flex-col min-h-0">
-            {/* Mobile tabs - horizontal scrollable */}
-            <TabsList className="flex md:hidden gap-2 mb-4 overflow-x-auto scrollbar-none pb-2 flex-shrink-0 bg-transparent h-auto p-0">
-              {tabs.map((tab) => (
-                <TabsTrigger
-                  key={tab.id}
-                  value={tab.id}
-                  className="flex-shrink-0 px-3 py-2 text-sm rounded-lg whitespace-nowrap data-[state=active]:bg-white/[0.06] data-[state=active]:text-white data-[state=inactive]:text-slate-400 border border-transparent data-[state=active]:border-white/[0.08]"
-                >
-                  {tab.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as Tab)} className="gap-4">
+          <TabsList className="h-auto w-full justify-start gap-2 overflow-x-auto rounded-2xl border border-white/[0.06] bg-white/[0.03] p-2">
+            <TabsTrigger value="keys" className="rounded-xl data-[state=active]:bg-white/[0.08] data-[state=active]:text-white">
+              密钥管理
+            </TabsTrigger>
+            <TabsTrigger value="docs" className="rounded-xl data-[state=active]:bg-white/[0.08] data-[state=active]:text-white">
+              配置说明
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="rounded-xl data-[state=active]:bg-white/[0.08] data-[state=active]:text-white">
+              请求日志
+            </TabsTrigger>
+            <TabsTrigger value="profile" className="rounded-xl data-[state=active]:bg-white/[0.08] data-[state=active]:text-white">
+              用户信息
+            </TabsTrigger>
+          </TabsList>
 
-            <div className="flex gap-4 flex-1 min-h-0">
-              {/* Sidebar - desktop only */}
-              <aside className="hidden md:block flex-shrink-0">
-                <TabsList className="flex flex-col gap-1 bg-transparent h-auto p-0">
-                  {tabs.map((tab) => (
-                    <TabsTrigger
-                      key={tab.id}
-                      value={tab.id}
-                      className="justify-start px-8 py-3 text-base rounded-xl data-[state=active]:bg-white/[0.06] data-[state=active]:text-white data-[state=inactive]:text-slate-400 border border-transparent data-[state=active]:border-white/[0.08]"
-                    >
-                      {tab.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </aside>
+          <TabsContent value="keys">
+            <Card className="border-white/[0.06] bg-[#0d1424]/70 backdrop-blur-xl">
+              <CardContent className="p-6">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-3">
+                    <KeyRound className="h-5 w-5 text-cyan-300" />
+                    <div>
+                      <h2 className="text-lg font-medium">当前 API Key</h2>
+                      <p className="text-sm text-slate-400">普通用户不再支持自助生成或重置密钥。</p>
+                    </div>
+                  </div>
 
-              {/* Content area */}
-              <main className="flex-1 min-w-0 min-h-0">
-                <div className="bg-[#0d1424]/60 backdrop-blur-xl border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 h-full flex flex-col">
-                  {/* 密钥管理 */}
-                  <TabsContent value="keys" className="animate-tab-fade-in m-0 flex-1">
-                    <h2 className="text-lg font-medium text-white mb-6">密钥管理</h2>
-
-                    {keyInfo === null ? (
-                      <div className="text-center py-8">
-                        <div className="animate-pulse space-y-4">
-                          <div className="h-4 w-32 bg-slate-700/50 rounded mx-auto"></div>
-                          <div className="h-10 w-24 bg-slate-700/50 rounded mx-auto"></div>
-                        </div>
-                      </div>
-                    ) : keyInfo.hasKey ? (
-                      <div className="space-y-4">
-                        {/* Key display */}
-                        <Card className="bg-[#0a0f1a]/60 border-white/[0.06]">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-slate-500 text-xs mb-1">API Key</p>
-                                <p className="text-white font-mono text-sm truncate">
-                                  {showKey && fullKey ? fullKey : keyInfo.maskedKey}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2 ml-4">
-                                <Button
-                                  variant="glass"
-                                  size="sm"
-                                  onClick={handleShowKey}
-                                >
-                                  {showKey ? <EyeOff className="w-4 h-4 mr-1" /> : <Eye className="w-4 h-4 mr-1" />}
-                                  {showKey ? "隐藏" : "显示"}
-                                </Button>
-                                <Button
-                                  variant="glass"
-                                  size="sm"
-                                  onClick={handleCopy}
-                                >
-                                  <Copy className="w-4 h-4 mr-1" />
-                                  {copied ? "已复制" : "复制"}
-                                </Button>
-                              </div>
-                            </div>
-                            {keyInfo.createdAt && (
-                              <p className="text-slate-600 text-xs mt-3">
-                                创建于 {new Date(keyInfo.createdAt).toLocaleString("zh-CN")}
-                              </p>
-                            )}
-                          </CardContent>
-                        </Card>
-
-                        {/* Reset button */}
-                        <Button
-                          variant="warning"
-                          onClick={() => setShowResetConfirm(true)}
-                          disabled={loading}
-                        >
-                          {loading ? "处理中..." : "重置密钥"}
-                        </Button>
-                        <p className="text-slate-600 text-xs">
-                          重置后旧密钥将立即失效，请谨慎操作
+                  {keyInfo?.hasKey ? (
+                    <>
+                      <div className="rounded-2xl border border-white/[0.06] bg-[#0a0f1a]/50 p-4">
+                        <p className="text-xs text-slate-500">API Key</p>
+                        <p className="mt-2 break-all font-mono text-sm text-white">
+                          {showKey && fullKey ? fullKey : keyInfo.maskedKey}
+                        </p>
+                        <p className="mt-3 text-xs text-slate-500">
+                          更新时间 {keyInfo.updatedAt ? new Date(keyInfo.updatedAt).toLocaleString("zh-CN") : "-"}
                         </p>
                       </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        {loading ? (
-                          <div className="space-y-4">
-                            <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto" />
-                            <p className="text-slate-400">正在生成密钥...</p>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-slate-500 mb-4">您还没有 API Key</p>
-                            <Button
-                              variant="gradient"
-                              onClick={handleGenerateKey}
-                            >
-                              生成密钥
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </TabsContent>
-
-                  {/* 配置说明 */}
-                  <TabsContent value="docs" className="flex flex-col flex-1 min-h-0 animate-tab-fade-in overflow-y-auto scrollbar-thin pr-2 m-0">
-                    <h2 className="text-lg font-medium text-white mb-6">配置说明</h2>
-
-                    <div className="space-y-6">
-                      {/* Step 1: Install Auggie */}
-                      <Card className="bg-[#0a0f1a]/60 border-white/[0.06]">
-                        <CardContent className="p-5">
-                          <div className="flex items-center gap-3 mb-3">
-                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 text-cyan-400 text-xs font-medium">
-                              1
-                            </span>
-                            <h3 className="text-white font-medium">安装 Auggie</h3>
-                          </div>
-                          <p className="text-slate-400 text-sm mb-4 leading-relaxed">
-                            首先，全局安装 Auggie CLI 工具。
-                          </p>
-                          <div className="relative group">
-                            <div className="bg-[#0a0f1a] border border-white/[0.08] rounded-lg p-3 font-mono text-sm">
-                              <code className="text-cyan-300">{installCommand}</code>
-                            </div>
-                            <Button
-                              variant="glass"
-                              size="sm"
-                              onClick={async () => {
-                                await navigator.clipboard.writeText(installCommand);
-                                setCopiedInstall(true);
-                                setTimeout(() => setCopiedInstall(false), 2000);
-                              }}
-                              className="absolute top-2 right-2"
-                            >
-                              {copiedInstall ? "已复制" : "复制"}
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Step 2: Configure MCP */}
-                      <Card className="bg-[#0a0f1a]/60 border-white/[0.06]">
-                        <CardContent className="p-5">
-                          <div className="flex items-center gap-3 mb-3">
-                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 text-cyan-400 text-xs font-medium">
-                              2
-                            </span>
-                            <h3 className="text-white font-medium">配置 MCP</h3>
-                          </div>
-                          <p className="text-slate-400 text-sm mb-4 leading-relaxed">
-                            在你的 MCP 配置文件中添加以下配置：
-                          </p>
-                          <div className="relative group">
-                            <div className="bg-[#0a0f1a] border border-white/[0.08] rounded-lg p-3 font-mono text-sm overflow-x-auto">
-                              <pre className="text-slate-300">
-                                <code>
-                                  <span className="text-slate-500">{"{"}</span>{"\n"}
-                                  <span className="text-slate-300">{"  "}</span>
-                                  <span className="text-cyan-400">&quot;mcpServers&quot;</span>
-                                  <span className="text-slate-500">:</span>
-                                  <span className="text-slate-500">{" {"}</span>{"\n"}
-                                  <span className="text-slate-300">{"    "}</span>
-                                  <span className="text-cyan-400">&quot;augment-context-engine&quot;</span>
-                                  <span className="text-slate-500">:</span>
-                                  <span className="text-slate-500">{" {"}</span>{"\n"}
-                                  <span className="text-slate-300">{"      "}</span>
-                                  <span className="text-cyan-400">&quot;command&quot;</span>
-                                  <span className="text-slate-500">:</span>
-                                  <span className="text-emerald-400">{" \"auggie\""}</span>
-                                  <span className="text-slate-500">,</span>{"\n"}
-                                  <span className="text-slate-300">{"      "}</span>
-                                  <span className="text-cyan-400">&quot;args&quot;</span>
-                                  <span className="text-slate-500">:</span>
-                                  <span className="text-slate-500">{" ["}</span>
-                                  <span className="text-emerald-400">&quot;--mcp&quot;</span>
-                                  <span className="text-slate-500">,</span>
-                                  <span className="text-emerald-400">{" \"--mcp-auto-workspace\""}</span>
-                                  <span className="text-slate-500">{"]"}</span>
-                                  <span className="text-slate-500">,</span>{"\n"}
-                                  <span className="text-slate-300">{"      "}</span>
-                                  <span className="text-cyan-400">&quot;env&quot;</span>
-                                  <span className="text-slate-500">:</span>
-                                  <span className="text-slate-500">{" {"}</span>{"\n"}
-                                  <span className="text-slate-300">{"        "}</span>
-                                  <span className="text-cyan-400">&quot;AUGMENT_API_TOKEN&quot;</span>
-                                  <span className="text-slate-500">:</span>
-                                  <span className="text-amber-400">{" \"your-access-token\""}</span>
-                                  <span className="text-slate-500">,</span>{"\n"}
-                                  <span className="text-slate-300">{"        "}</span>
-                                  <span className="text-cyan-400">&quot;AUGMENT_API_URL&quot;</span>
-                                  <span className="text-slate-500">:</span>
-                                  <span className="text-emerald-400">{` "${relayUrl}"`}</span>{"\n"}
-                                  <span className="text-slate-300">{"      "}</span>
-                                  <span className="text-slate-500">{"}"}</span>{"\n"}
-                                  <span className="text-slate-300">{"    "}</span>
-                                  <span className="text-slate-500">{"}"}</span>{"\n"}
-                                  <span className="text-slate-300">{"  "}</span>
-                                  <span className="text-slate-500">{"}"}</span>{"\n"}
-                                  <span className="text-slate-500">{"}"}</span>
-                                </code>
-                              </pre>
-                            </div>
-                            <Button
-                              variant="glass"
-                              size="sm"
-                              onClick={async () => {
-                                await navigator.clipboard.writeText(mcpConfig);
-                                setCopiedConfig(true);
-                                setTimeout(() => setCopiedConfig(false), 2000);
-                              }}
-                              className="absolute top-2 right-2"
-                            >
-                              {copiedConfig ? "已复制" : "复制"}
-                            </Button>
-                          </div>
-
-                          {/* Configuration notes */}
-                          <div className="mt-5 space-y-3">
-                            <div className="flex gap-3 p-3 bg-[#0a0f1a]/80 border border-white/[0.04] rounded-lg">
-                              <code className="text-cyan-400 text-xs font-mono shrink-0">AUGMENT_API_TOKEN</code>
-                              <p className="text-slate-400 text-xs">
-                                你的 API 密钥，在「密钥管理」中生成
-                              </p>
-                            </div>
-                            <div className="flex gap-3 p-3 bg-[#0a0f1a]/80 border border-white/[0.04] rounded-lg">
-                              <code className="text-cyan-400 text-xs font-mono shrink-0">AUGMENT_API_URL</code>
-                              <p className="text-slate-400 text-xs">
-                                固定为 <code className="text-emerald-400">{relayUrl}</code>
-                              </p>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      {/* Tips */}
-                      <Card className="bg-gradient-to-br from-cyan-500/[0.06] to-blue-500/[0.06] border-cyan-500/20">
-                        <CardContent className="p-4">
-                          <h4 className="text-white text-sm font-medium mb-3 flex items-center gap-2">
-                            <Info className="w-4 h-4 text-cyan-400" />
-                            温馨提示
-                          </h4>
-                          <ul className="text-slate-400 text-xs space-y-2">
-                            <li className="flex items-start gap-2">
-                              <span className="text-cyan-400 mt-0.5">•</span>
-                              <span>配置完成后，重启 IDE 或编辑器以使配置生效</span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <span className="text-cyan-400 mt-0.5">•</span>
-                              <span>请妥善保管 API 密钥，不要在公开场合分享</span>
-                            </li>
-                            <li className="flex items-start gap-2">
-                              <span className="text-cyan-400 mt-0.5">•</span>
-                              <span>如遇问题，可在「请求日志」中查看排查</span>
-                            </li>
-                          </ul>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </TabsContent>
-
-                  {/* 请求日志 */}
-                  <TabsContent value="logs" className="flex flex-col flex-1 min-h-0 animate-tab-fade-in m-0">
-                    <div className="flex items-center justify-between mb-4 sm:mb-6 flex-shrink-0">
-                      <h2 className="text-base sm:text-lg font-medium text-white">请求日志</h2>
-                      <div className="flex items-center gap-2 sm:gap-3">
-                        <div className="hidden sm:flex items-center gap-2">
-                          <Checkbox
-                            id="auto-refresh"
-                            checked={autoRefresh}
-                            onCheckedChange={(checked) => setAutoRefresh(checked === true)}
-                            className="border-white/20 data-[state=checked]:bg-cyan-500 data-[state=checked]:border-cyan-500"
-                          />
-                          <Label htmlFor="auto-refresh" className="text-sm text-slate-400 cursor-pointer">
-                            自动刷新
-                          </Label>
-                        </div>
-                        <Button
-                          variant="glass"
-                          size="sm"
-                          onClick={() => setAutoRefresh(!autoRefresh)}
-                          className={cn(
-                            "sm:hidden",
-                            autoRefresh && "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"
-                          )}
-                        >
-                          {autoRefresh ? "自动" : "手动"}
+                      <div className="flex flex-wrap gap-3">
+                        <Button variant="glass" onClick={handleRevealKey}>
+                          {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          {showKey ? "隐藏" : "显示完整密钥"}
                         </Button>
-                        <Button
-                          variant="glass"
-                          size="sm"
-                          onClick={() => fetchLogs(1, true)}
-                          disabled={logsLoading}
-                        >
-                          <RefreshCw className={cn("w-4 h-4", logsLoading && "animate-spin")} />
-                          <span className="hidden sm:inline ml-1">刷新</span>
+                        <Button variant="glass" onClick={handleCopyKey}>
+                          <Copy className="h-4 w-4" />
+                          {copied ? "已复制" : "复制"}
                         </Button>
+                        {user.isAdmin ? (
+                          <Button variant="warning" asChild>
+                            <Link href="/admin/users">前往用户管理</Link>
+                          </Button>
+                        ) : null}
                       </div>
+                    </>
+                  ) : (
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+                      该账号尚未分配 API Key，请联系管理员创建或重置。
                     </div>
-
-                    {/* Statistics Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-6 flex-shrink-0">
-                      <Card className="bg-[#0a0f1a]/60 border-green-500/20">
-                        <CardContent className="p-2 sm:p-4">
-                          <p className="text-slate-500 text-[10px] sm:text-xs mb-0.5 sm:mb-1">成功</p>
-                          <p className="text-lg sm:text-2xl font-medium text-green-400">
-                            {logsData?.stats.successCount.toLocaleString() || 0}
-                          </p>
-                        </CardContent>
-                      </Card>
-                      <Card className="bg-[#0a0f1a]/60 border-red-500/20">
-                        <CardContent className="p-2 sm:p-4">
-                          <p className="text-slate-500 text-[10px] sm:text-xs mb-0.5 sm:mb-1">失败</p>
-                          <p className="text-lg sm:text-2xl font-medium text-red-400">
-                            {logsData?.stats.failedCount.toLocaleString() || 0}
-                          </p>
-                        </CardContent>
-                      </Card>
-                      <Card className="bg-[#0a0f1a]/60 border-white/[0.06]">
-                        <CardContent className="p-2 sm:p-4">
-                          <p className="text-slate-500 text-[10px] sm:text-xs mb-0.5 sm:mb-1">总计</p>
-                          <p className="text-lg sm:text-2xl font-medium text-slate-300">
-                            {logsData?.stats.totalCount.toLocaleString() || 0}
-                          </p>
-                        </CardContent>
-                      </Card>
-                      <Card className="bg-[#0a0f1a]/60 border-cyan-500/20">
-                        <CardContent className="p-2 sm:p-4">
-                          <p className="text-slate-500 text-[10px] sm:text-xs mb-0.5 sm:mb-1">ContextEngine</p>
-                          <p className="text-lg sm:text-2xl font-medium text-cyan-400">
-                            {logsData?.stats.contextEngineCount.toLocaleString() || 0}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    {/* Log Entries */}
-                    <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin pr-2">
-                      <div className="space-y-2">
-                        {logsLoading && !logsData && (
-                          <>
-                            <Skeleton className="h-16 w-full bg-white/[0.06]" />
-                            <Skeleton className="h-16 w-full bg-white/[0.06]" />
-                            <Skeleton className="h-16 w-full bg-white/[0.06]" />
-                          </>
-                        )}
-                        {logsData?.logs.length === 0 && (
-                          <div className="text-center py-8 text-slate-500">
-                            暂无请求日志
-                          </div>
-                        )}
-                        {logsData?.logs.map((log) => (
-                          <LogEntry key={log.id} log={log} onClick={() => fetchLogDetail(log.id)} />
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Pagination */}
-                    {logsData && logsData.pagination.total > 20 && (
-                      <div className="flex items-center justify-center gap-2 mt-6 flex-shrink-0">
-                        <Button
-                          variant="glass"
-                          size="sm"
-                          onClick={() => fetchLogs(logsPage - 1)}
-                          disabled={logsPage <= 1 || logsLoading}
-                        >
-                          上一页
-                        </Button>
-                        <span className="text-slate-500 text-sm px-3">
-                          {logsPage} / {Math.ceil(logsData.pagination.total / 20)}
-                        </span>
-                        <Button
-                          variant="glass"
-                          size="sm"
-                          onClick={() => fetchLogs(logsPage + 1)}
-                          disabled={logsPage >= Math.ceil(logsData.pagination.total / 20) || logsLoading}
-                        >
-                          下一页
-                        </Button>
-                      </div>
-                    )}
-                  </TabsContent>
-
-                  {/* 用户信息 */}
-                  <TabsContent value="profile" className="animate-tab-fade-in m-0">
-                    <h2 className="text-lg font-medium text-white mb-6">用户信息</h2>
-
-                    {userInfo ? (
-                      <div className="space-y-6">
-                        {/* Avatar and name */}
-                        <div className="flex items-center gap-4">
-                          <Avatar className="h-16 w-16 border border-white/10">
-                            <AvatarImage src={userInfo.image} alt={userInfo.name || "avatar"} />
-                            <AvatarFallback className="bg-slate-800 text-slate-300">
-                              {userInfo.name?.charAt(0)?.toUpperCase() || "U"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <p className="text-white font-medium text-lg">{userInfo.name}</p>
-                            <p className="text-slate-500 text-sm">@{userInfo.username}</p>
-                          </div>
-                        </div>
-
-                        {/* Info grid */}
-                        <div className="grid grid-cols-2 gap-4">
-                          <InfoItem label="邮箱" value={userInfo.email || "-"} copyable />
-                          <InfoItem label="用户 ID" value={userInfo.id} copyable />
-                          <InfoItem label="信任等级" value={`Level ${userInfo.trustLevel || 0}`} />
-                          <InfoItem
-                            label="注册时间"
-                            value={userInfo.createdAt ? new Date(userInfo.createdAt).toLocaleDateString("zh-CN") : "-"}
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-4">
-                          <Skeleton className="h-16 w-16 rounded-full bg-white/[0.06]" />
-                          <div className="space-y-2">
-                            <Skeleton className="h-5 w-32 bg-white/[0.06]" />
-                            <Skeleton className="h-4 w-24 bg-white/[0.06]" />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <Skeleton className="h-20 bg-white/[0.06]" />
-                          <Skeleton className="h-20 bg-white/[0.06]" />
-                          <Skeleton className="h-20 bg-white/[0.06]" />
-                          <Skeleton className="h-20 bg-white/[0.06]" />
-                        </div>
-                      </div>
-                    )}
-                  </TabsContent>
+                  )}
                 </div>
-              </main>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="docs">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card className="border-white/[0.06] bg-[#0d1424]/70 backdrop-blur-xl">
+                <CardContent className="space-y-4 p-6">
+                  <div className="flex items-center gap-3">
+                    <Info className="h-5 w-5 text-cyan-300" />
+                    <div>
+                      <h2 className="text-lg font-medium">客户端安装</h2>
+                      <p className="text-sm text-slate-400">安装 Auggie CLI 并写入 relay 地址。</p>
+                    </div>
+                  </div>
+                  <pre className="overflow-x-auto rounded-2xl border border-white/[0.06] bg-[#0a0f1a]/60 p-4 text-xs text-cyan-100">{installCommand}</pre>
+                  <Button variant="glass" onClick={() => copyText(installCommand, setCopiedInstall)}>
+                    <Copy className="h-4 w-4" />
+                    {copiedInstall ? "已复制" : "复制安装命令"}
+                  </Button>
+                </CardContent>
+              </Card>
+              <Card className="border-white/[0.06] bg-[#0d1424]/70 backdrop-blur-xl">
+                <CardContent className="space-y-4 p-6">
+                  <div>
+                    <h2 className="text-lg font-medium">MCP 配置</h2>
+                    <p className="mt-1 text-sm text-slate-400">将下方配置复制到本地 MCP 配置文件。</p>
+                  </div>
+                  <pre className="max-h-[340px] overflow-auto rounded-2xl border border-white/[0.06] bg-[#0a0f1a]/60 p-4 text-xs text-cyan-100">{mcpConfig}</pre>
+                  <Button variant="glass" onClick={() => copyText(mcpConfig, setCopiedConfig)}>
+                    <Copy className="h-4 w-4" />
+                    {copiedConfig ? "已复制" : "复制配置"}
+                  </Button>
+                </CardContent>
+              </Card>
             </div>
-          </Tabs>
-        </div>
-      </div>
+          </TabsContent>
 
-      {/* Reset confirm dialog */}
-      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
-        <AlertDialogContent className="bg-[#0d1424] border-white/[0.08]">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">确认重置密钥</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
-              重置后旧密钥将立即失效，所有使用旧密钥的服务都需要更新。确定要继续吗？
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="bg-transparent border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.06]">
-              取消
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleResetKey}
-              disabled={loading}
-              className="bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-white"
-            >
-              {loading ? "处理中..." : "确认重置"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Logout confirm dialog */}
-      <AlertDialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
-        <AlertDialogContent className="bg-[#0d1424] border-white/[0.08]">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">确认退出登录</AlertDialogTitle>
-            <AlertDialogDescription className="text-slate-400">
-              确定要退出登录吗？
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="bg-transparent border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.06]">
-              取消
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleLogout}
-              className="bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-white"
-            >
-              确认退出
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Log detail dialog */}
-      <AlertDialog open={showDetailDialog} onOpenChange={(open) => {
-        setShowDetailDialog(open);
-        if (!open) setLogDetail(null);
-      }}>
-        <AlertDialogContent className="bg-[#0d1424] border-white/[0.08] max-w-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">请求详情</AlertDialogTitle>
-          </AlertDialogHeader>
-
-          {detailLoading ? (
-            <div className="space-y-4 py-4">
-              <Skeleton className="h-6 w-full bg-white/[0.06]" />
-              <Skeleton className="h-32 w-full bg-white/[0.06]" />
-            </div>
-          ) : logDetail ? (
+          <TabsContent value="logs">
             <div className="space-y-4">
-              {/* Request ID with copy */}
-              <LogDetailItem
-                label="请求 ID"
-                value={logDetail.log.id}
-                copyable
-                mono
-              />
-
-              {/* Main info grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <LogDetailItem label="请求方法" value={logDetail.log.requestMethod} />
-                <LogDetailItem
-                  label="状态码"
-                  value={logDetail.log.statusCode?.toString() || logDetail.log.status}
-                  statusCode={logDetail.log.statusCode}
-                />
-                <LogDetailItem
-                  label="响应时间"
-                  value={logDetail.log.responseDurationMs !== null ? `${logDetail.log.responseDurationMs} ms` : "-"}
-                />
-                <LogDetailItem label="客户端 IP" value={logDetail.log.clientIp} mono />
+              <div className="grid gap-4 md:grid-cols-4">
+                {[
+                  { label: "总请求", value: String(stats?.totalCount ?? "-") },
+                  { label: "成功", value: String(stats?.successCount ?? "-") },
+                  { label: "失败", value: String(stats?.failedCount ?? "-") },
+                  { label: "ContextEngine", value: String(stats?.contextEngineCount ?? "-") },
+                ].map((item) => (
+                  <Card key={item.label} className="border-white/[0.06] bg-[#0d1424]/70 backdrop-blur-xl">
+                    <CardContent className="p-5">
+                      <p className="text-sm text-slate-400">{item.label}</p>
+                      <p className="mt-2 text-2xl font-semibold text-white">{item.value}</p>
+                    </CardContent>
+                  </Card>
+                ))}
               </div>
 
-              {/* Request path - full width */}
-              <LogDetailItem
-                label="请求路径"
-                value={logDetail.log.requestPath}
-                mono
-              />
-
-              {/* Timestamp */}
-              <LogDetailItem
-                label="请求时间"
-                value={new Date(logDetail.log.requestTimestamp).toLocaleString("zh-CN")}
-              />
-
-              {/* Error section - only show if errors exist */}
-              {logDetail.errors && logDetail.errors.length > 0 && (
-                <div className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-lg space-y-3">
-                  <p className="text-red-400 text-sm font-medium">错误信息</p>
-                  {logDetail.errors.map((error) => (
-                    <div key={error.id} className="space-y-2">
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-slate-500">来源:</span>
-                        <span className="text-slate-300">{error.source}</span>
-                        <span className="text-slate-600">·</span>
-                        <span className="text-slate-500">
-                          {new Date(error.createdAt).toLocaleString("zh-CN")}
-                        </span>
-                      </div>
-                      <p className="text-red-300 text-sm font-mono bg-red-500/5 p-2 rounded break-all">
-                        {error.error}
-                      </p>
+              <Card className="border-white/[0.06] bg-[#0d1424]/70 backdrop-blur-xl">
+                <CardContent className="p-6">
+                  <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-lg font-medium">请求日志</h2>
+                      <p className="text-sm text-slate-400">最近请求明细与错误详情。</p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-slate-500">
-              加载失败
-            </div>
-          )}
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-2 text-sm text-slate-400">
+                        <input
+                          type="checkbox"
+                          checked={autoRefresh}
+                          onChange={(event) => setAutoRefresh(event.target.checked)}
+                          className="h-4 w-4 rounded border-white/[0.12] bg-transparent"
+                        />
+                        自动刷新
+                      </label>
+                      <Button variant="glass" size="sm" onClick={() => fetchLogs(logsPage || 1, true)}>
+                        <RefreshCw className={cn("h-4 w-4", logsLoading && "animate-spin")} />
+                      </Button>
+                    </div>
+                  </div>
 
+                  <div className="space-y-3">
+                    {logsLoading && !logsData ? (
+                      <div className="rounded-2xl border border-white/[0.06] bg-[#0a0f1a]/40 p-6 text-sm text-slate-400">
+                        日志加载中...
+                      </div>
+                    ) : logsData?.logs.length ? (
+                      logsData.logs.map((log) => (
+                        <button
+                          key={log.id}
+                          type="button"
+                          onClick={() => fetchLogDetail(log.id)}
+                          className="w-full rounded-2xl border border-white/[0.06] bg-[#0a0f1a]/40 p-4 text-left transition hover:border-cyan-400/40 hover:bg-[#0a0f1a]/60"
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-white">{log.requestMethod} {log.requestPath}</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {new Date(log.requestTimestamp).toLocaleString("zh-CN")} · {log.clientIp}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3 text-sm">
+                              <Badge className={cn(
+                                "px-3 py-1",
+                                (log.statusCode || 0) >= 400
+                                  ? "border-red-500/20 bg-red-500/10 text-red-300"
+                                  : "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                              )}>
+                                {log.statusCode ?? log.status}
+                              </Badge>
+                              <span className="text-slate-400">{log.responseDurationMs ?? "-"} ms</span>
+                            </div>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-white/[0.06] bg-[#0a0f1a]/40 p-6 text-sm text-slate-400">
+                        暂无请求日志。
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between text-sm text-slate-400">
+                    <span>
+                      第 {logsPage} 页 {logsData?.pagination.total ? `· 共 ${logsData.pagination.total} 条` : ""}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="glass"
+                        size="sm"
+                        disabled={logsPage <= 1 || logsLoading}
+                        onClick={() => fetchLogs(logsPage - 1)}
+                      >
+                        上一页
+                      </Button>
+                      <Button
+                        variant="glass"
+                        size="sm"
+                        disabled={Boolean(logsData?.pagination.total && logsPage * 20 >= (logsData.pagination.total || 0)) || logsLoading}
+                        onClick={() => fetchLogs(logsPage + 1)}
+                      >
+                        下一页
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="profile">
+            <div className="grid gap-4 md:grid-cols-2">
+              <InfoItem label="用户 ID" value={user.id} />
+              <InfoItem label="显示名称" value={user.name} />
+              <InfoItem label="状态" value={user.status === "active" ? "启用" : "停用"} />
+              <InfoItem label="管理员权限" value={user.isAdmin ? "是" : "否"} />
+              <InfoItem label="备注" value={user.note || "-"} />
+              <InfoItem label="注册时间" value={new Date(user.createdAt).toLocaleString("zh-CN")} />
+            </div>
+          </TabsContent>
+        </Tabs>
+      </main>
+
+      <AlertDialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
+        <AlertDialogContent className="border-white/[0.08] bg-[#0d1424] text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认退出登录？</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              退出后需要重新输入 API Key 才能访问控制台。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="bg-transparent border-white/[0.08] text-slate-400 hover:text-white hover:bg-white/[0.06]">
-              关闭
+            <AlertDialogCancel className="border-white/[0.08] bg-white/[0.03] text-slate-300 hover:bg-white/[0.08]">
+              取消
             </AlertDialogCancel>
+            <AlertDialogAction className="bg-red-500/80 text-white hover:bg-red-500" onClick={handleLogout}>
+              <LogOut className="h-4 w-4" /> 退出登录
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
-  );
-}
 
-function InfoItem({
-  label,
-  value,
-  copyable = false,
-}: {
-  label: string;
-  value: string;
-  copyable?: boolean;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    if (!value || value === "-") return;
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <Card className="bg-[#0a0f1a]/60 border-white/[0.06]">
-      <CardContent className="p-4">
-        <p className="text-slate-500 text-xs mb-1">{label}</p>
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-white text-sm truncate flex-1">{value}</p>
-          {copyable && value && value !== "-" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleCopy}
-              className="h-auto p-1 text-slate-400 hover:text-white"
-            >
-              {copied ? "已复制" : "复制"}
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function LogDetailItem({
-  label,
-  value,
-  copyable = false,
-  mono = false,
-  statusCode,
-}: {
-  label: string;
-  value: string;
-  copyable?: boolean;
-  mono?: boolean;
-  statusCode?: number | null;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    if (!value || value === "-") return;
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const getStatusColor = () => {
-    if (!statusCode) return "text-slate-400";
-    if (statusCode >= 200 && statusCode < 400) return "text-green-400";
-    return "text-red-400";
-  };
-
-  return (
-    <div className="bg-[#0a0f1a]/80 border border-white/[0.04] rounded-lg p-3">
-      <p className="text-slate-500 text-xs mb-1">{label}</p>
-      <div className="flex items-center justify-between gap-2">
-        <p className={cn(
-          "text-sm break-all flex-1",
-          mono ? "font-mono text-cyan-300" : "text-white",
-          statusCode !== undefined && getStatusColor()
-        )}>
-          {value}
-        </p>
-        {copyable && value && value !== "-" && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleCopy();
-            }}
-            className="h-auto p-1 text-slate-400 hover:text-white shrink-0"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span className="ml-1 text-xs">{copied ? "已复制" : "复制"}</span>
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LogEntry({ log, onClick }: { log: RequestLog; onClick?: () => void }) {
-  const methodColors: Record<string, string> = {
-    GET: "bg-green-500/20 text-green-400 border-green-500/30",
-    POST: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-    PUT: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-    DELETE: "bg-red-500/20 text-red-400 border-red-500/30",
-    PATCH: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  };
-
-  const getStatusBadge = (compact = false) => {
-    if (log.status === "pending") {
-      return (
-        <Badge variant="outline" className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
-          <span className="relative flex h-1.5 w-1.5 sm:h-2 sm:w-2 mr-1">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 bg-yellow-500"></span>
-          </span>
-          {compact ? "..." : "处理中"}
-        </Badge>
-      );
-    }
-
-    const statusCode = log.statusCode || 0;
-    if (statusCode >= 200 && statusCode < 400) {
-      return (
-        <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/30">
-          {statusCode}
-        </Badge>
-      );
-    }
-
-    return (
-      <Badge variant="outline" className="bg-red-500/20 text-red-400 border-red-500/30">
-        {statusCode}
-      </Badge>
-    );
-  };
-
-  const formatDateTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    const dateStr = date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
-    const timeStr = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    return { dateStr, timeStr };
-  };
-
-  return (
-    <Card
-      className={cn(
-        "bg-[#0a0f1a]/60 border-white/[0.06]",
-        onClick && "cursor-pointer hover:bg-white/[0.02] hover:border-white/[0.1] transition-colors"
-      )}
-      onClick={onClick}
-    >
-      <CardContent className="p-2.5 sm:p-4">
-        <div className="flex items-center justify-between gap-2 sm:gap-4">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-            <Badge variant="outline" className={cn("font-mono text-[10px] sm:text-xs shrink-0", methodColors[log.requestMethod] || "text-slate-400")}>
-              {log.requestMethod}
-            </Badge>
-            <span className="text-white text-xs sm:text-sm font-mono truncate flex-1">
-              {log.requestPath}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 sm:gap-4 text-xs text-slate-500 shrink-0">
-            <span className="hidden sm:flex">{getStatusBadge()}</span>
-            <span className="flex sm:hidden">{getStatusBadge(true)}</span>
-            <span className="hidden sm:block w-16 text-right">{log.responseDurationMs !== null ? `${log.responseDurationMs}ms` : ''}</span>
-            <span className="hidden md:block w-32 text-right text-slate-600">
-              <span className="text-slate-700">{formatDateTime(log.requestTimestamp).dateStr}</span>
-              {' '}
-              {formatDateTime(log.requestTimestamp).timeStr}
-            </span>
-            <span className="hidden lg:block w-28 text-right text-slate-600 font-mono">{log.clientIp}</span>
+      {logDetail || detailLoading ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-3xl rounded-3xl border border-white/[0.08] bg-[#0d1424] p-6 shadow-2xl shadow-cyan-950/20">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold">请求详情</h3>
+                <p className="text-sm text-slate-400">查看错误详情与请求元数据。</p>
+              </div>
+              <Button variant="ghost" onClick={() => setLogDetail(null)}>关闭</Button>
+            </div>
+            {detailLoading && !logDetail ? (
+              <div className="py-10 text-center text-slate-400">加载中...</div>
+            ) : logDetail ? (
+              <div className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <InfoItem label="路径" value={logDetail.log.requestPath} />
+                  <InfoItem label="方法" value={logDetail.log.requestMethod} />
+                  <InfoItem label="状态码" value={String(logDetail.log.statusCode ?? logDetail.log.status)} />
+                  <InfoItem label="耗时" value={`${logDetail.log.responseDurationMs ?? "-"} ms`} />
+                </div>
+                <div className="rounded-2xl border border-white/[0.06] bg-[#0a0f1a]/40 p-4">
+                  <p className="text-sm font-medium text-white">错误详情</p>
+                  {logDetail.errors.length ? (
+                    <div className="mt-3 space-y-3">
+                      {logDetail.errors.map((item) => (
+                        <div key={item.id} className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
+                          <p className="text-xs uppercase tracking-wide text-cyan-300">{item.source}</p>
+                          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs text-slate-200">{item.error}</pre>
+                          <p className="mt-2 text-xs text-slate-500">{new Date(item.createdAt).toLocaleString("zh-CN")}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-400">该请求没有关联错误详情。</p>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
-      </CardContent>
-    </Card>
+      ) : null}
+    </div>
   );
 }
