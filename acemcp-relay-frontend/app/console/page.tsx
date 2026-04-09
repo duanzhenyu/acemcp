@@ -105,21 +105,34 @@ export default function ConsolePage() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const installCommand = "npm install -g @augmentcode/auggie@latest";
-  const relayUrl = process.env.NEXT_PUBLIC_RELAY_URL || "https://acemcp.heroman.wtf/relay/";
-  const mcpConfig = useMemo(
-    () => `{
-  "mcpServers": {
-    "augment-context-engine": {
-      "command": "auggie",
-      "args": ["--mcp", "--mcp-auto-workspace"],
-      "env": {
-        "AUGMENT_API_TOKEN": "your-access-token",
-        "AUGMENT_API_URL": "${relayUrl}"
-      }
-    }
-  }
-}`,
+  const relayUrl = (process.env.NEXT_PUBLIC_RELAY_URL || "https://ace-api.duanzhenyu.top:8003").replace(/\/+$/, "");
+  const sessionAuth = useMemo(
+    () =>
+      JSON.stringify({
+        accessToken: "your-access-token",
+        tenantURL: relayUrl,
+        scopes: ["email"],
+      }),
     [relayUrl]
+  );
+  const mcpConfig = useMemo(
+    () =>
+      JSON.stringify(
+        {
+          mcpServers: {
+            "augment-context-engine": {
+              command: "auggie",
+              args: ["--mcp", "--mcp-auto-workspace"],
+              env: {
+                AUGMENT_SESSION_AUTH: sessionAuth,
+              },
+            },
+          },
+        },
+        null,
+        2
+      ),
+    [sessionAuth]
   );
 
   const fetchKeyInfo = useCallback(async () => {
