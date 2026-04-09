@@ -2,6 +2,8 @@
 
 Go HTTP relay / proxy，用于把客户端请求中继到 Augment API。基于 Gin 构建，支持标准 HTTP 请求与 SSE 流式传输。
 
+> 本项目改自上游仓库：https://github.com/heromantf/acemcp-relay
+
 ## 功能特性
 
 - **API 请求代理**：转发预定义的 Augment API 路径

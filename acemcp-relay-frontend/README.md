@@ -2,6 +2,8 @@
 
 ACE Relay 服务的前端控制台，用于 **API Key 登录、管理员用户管理、日志查看、排行榜与状态页展示**。
 
+> 本项目改自上游仓库：https://github.com/heromantf/acemcp-relay-frontend
+
 ## 技术栈
 
 - **Next.js 16** (App Router)
