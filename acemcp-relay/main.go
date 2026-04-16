@@ -78,6 +78,8 @@ var allowedPaths = []string{
 	"/agents/codebase-retrieval",
 	"/record-request-events",
 	"/report-error",
+	"/indexed-commits/register-blobset",
+	"/indexed-commits/get-latest-blobset",
 }
 
 var ssePaths = []string{
